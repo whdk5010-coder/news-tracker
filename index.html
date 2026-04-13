@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>뉴스 트래커</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         :root { --bg:#0f172a; --card:rgba(30,41,59,0.9); --border:rgba(71,85,105,0.4); --text:#e2e8f0; --muted:#94a3b8; --dim:#64748b; }
@@ -87,6 +91,10 @@
         /* 카테고리 선택 */
         .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:16px}
         .cat-btn{padding:12px;border-radius:10px;text-align:center;cursor:pointer;border:1px solid var(--border);background:var(--card);transition:all .2s;font-size:.8rem;font-weight:600}
+        .cat-chip{padding:5px 12px;border-radius:99px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s}
+        .cat-chip:hover{border-color:#6366f1;color:#818cf8}
+        .cat-chip.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
+        body.light .cat-chip.active{background:#4338ca;color:#fff}
         .cat-btn:hover{border-color:#6366f1}
         .cat-btn.active{background:#4338ca;border-color:#6366f1;color:#fff}
         .cat-icon{font-size:1.3rem;display:block;margin-bottom:4px}
@@ -212,15 +220,25 @@
     </div>
 </div>
 
+<!-- 카테고리 바 -->
+<div style="background:#1e293b;padding:8px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;display:flex;gap:6px;border-bottom:1px solid var(--border);position:sticky;top:56px;z-index:40" id="catBar">
+    <button class="cat-chip active" data-cat="economy" onclick="selectCategory('economy')">&#128181; 경제</button>
+    <button class="cat-chip" data-cat="politics" onclick="selectCategory('politics')">&#127963; 정치</button>
+    <button class="cat-chip" data-cat="tech" onclick="selectCategory('tech')">&#128187; IT</button>
+    <button class="cat-chip" data-cat="world" onclick="selectCategory('world')">&#127758; 국제</button>
+    <button class="cat-chip" data-cat="realestate" onclick="selectCategory('realestate')">&#127968; 부동산</button>
+    <button class="cat-chip" data-cat="entertainment" onclick="selectCategory('entertainment')">&#127908; 연예</button>
+    <button class="cat-chip" data-cat="sports" onclick="selectCategory('sports')">&#9917; 스포츠</button>
+    <button class="cat-chip" data-cat="health" onclick="selectCategory('health')">&#129657; 건강</button>
+    <button class="cat-chip" data-cat="religion" onclick="selectCategory('religion')">&#128591; 종교</button>
+</div>
+
 <!-- 탭 -->
-<div class="tabs" id="tabBar">
+<div class="tabs" id="tabBar" style="top:100px">
     <div class="tab active" data-tab="hot" onclick="switchTab('hot')">&#128293; 핫토픽 <span class="cnt" id="hotCount">0</span></div>
-    <div class="tab" data-tab="rec" onclick="switchTab('rec')">&#11088; 추천 <span class="pro-badge">PRO</span></div>
-    <div class="tab" data-tab="comp" onclick="switchTab('comp')">&#128065; 경쟁채널 <span class="pro-badge">PRO</span></div>
     <div class="tab" data-tab="news" onclick="switchTab('news')">&#128240; 뉴스 <span class="cnt" id="newsCount">0</span></div>
     <div class="tab" data-tab="trends" onclick="switchTab('trends')">&#128200; 급상승 <span class="cnt" id="trendCount">0</span></div>
-    <div class="tab" data-tab="pricing" onclick="switchTab('pricing')">&#128176; <span data-i18n="tab_pricing">가격</span></div>
-    <div class="tab" data-tab="settings" onclick="switchTab('settings')">&#9881; <span data-i18n="tab_settings">설정</span></div>
+    <div class="tab" data-tab="more" onclick="switchTab('more')">&#8943; 더보기</div>
 </div>
 
 <div class="content">
@@ -350,6 +368,38 @@
                 <p style="color:var(--muted)" data-i18n="faq_a2">A. 네, 개인 유튜버/크리에이터 누구나 이용 가능합니다.</p>
                 <p style="color:#fff;font-weight:600;margin-top:10px" data-i18n="faq_q3">Q. 해외에서도 결제 가능한가요?</p>
                 <p style="color:var(--muted)" data-i18n="faq_a3">A. PayPal로 해외 결제가 가능합니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 더보기 탭 ========== -->
+    <div class="panel" id="panel-more">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+            <div class="card" style="text-align:center;cursor:pointer;padding:20px" onclick="switchTab('rec')">
+                <div style="font-size:1.5rem">&#11088;</div>
+                <div style="font-size:.82rem;font-weight:600;margin-top:4px">맞춤 추천</div>
+                <div style="font-size:.65rem;color:var(--muted)">PRO</div>
+            </div>
+            <div class="card" style="text-align:center;cursor:pointer;padding:20px" onclick="switchTab('comp')">
+                <div style="font-size:1.5rem">&#128065;</div>
+                <div style="font-size:.82rem;font-weight:600;margin-top:4px">경쟁채널</div>
+                <div style="font-size:.65rem;color:var(--muted)">PRO</div>
+            </div>
+            <div class="card" style="text-align:center;cursor:pointer;padding:20px" onclick="switchTab('pricing')">
+                <div style="font-size:1.5rem">&#128176;</div>
+                <div style="font-size:.82rem;font-weight:600;margin-top:4px">가격</div>
+            </div>
+            <div class="card" style="text-align:center;cursor:pointer;padding:20px" onclick="switchTab('settings')">
+                <div style="font-size:1.5rem">&#9881;</div>
+                <div style="font-size:.82rem;font-weight:600;margin-top:4px">설정</div>
+            </div>
+        </div>
+
+        <!-- 북마크 -->
+        <div class="card">
+            <h3 style="font-weight:700;margin-bottom:8px">&#128278; 북마크한 토픽</h3>
+            <div id="bookmarkList">
+                <p style="font-size:.8rem;color:var(--dim)">핫토픽에서 &#128278; 버튼을 눌러 저장하세요</p>
             </div>
         </div>
     </div>
@@ -605,6 +655,7 @@ function renderHot(){
             <div class="score-bar"><div class="score-fill" style="width:${Math.min(t.score*20,100)}%"></div></div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
                 <div class="source-tags" style="flex:1;margin-top:0">${t.sources.map(s=>`<span class="source-tag">${s}</span>`).join('')}</div>
+                <button style="background:none;border:none;font-size:1.1rem;cursor:pointer;padding:4px" onclick="event.stopPropagation();toggleBookmark('${t.keyword.replace(/'/g,"\\'")}')" title="북마크">${(data.bookmarks||[]).includes(t.keyword)?'&#128278;':'&#128279;'}</button>
             </div>
             <div class="articles-list" id="arts-${i}" style="display:none">
                 ${(t.articles||[]).slice(0,5).map(a=>`<div class="article-item"><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a><div style="font-size:.7rem;color:var(--dim);margin-top:2px">${a.source} &middot; ${timeAgo(a.pubDate)}</div></div>`).join('')}
@@ -829,9 +880,41 @@ async function removeCompetitor(id){
 async function selectCategory(cat){
     currentCategory=cat;
     localStorage.setItem('nt_category',cat);
+    // 카테고리 바 + 설정 탭 둘 다 업데이트
+    document.querySelectorAll('.cat-chip').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat));
     document.querySelectorAll('.cat-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat));
-    // 바로 해당 카테고리 데이터 요청 — 서버에 미리 캐시되어 있음
+    // 핫토픽 탭으로 이동
+    switchTab('hot');
     await refreshAll();
+}
+
+async function toggleBookmark(keyword){
+    const bookmarks = data.bookmarks || [];
+    const action = bookmarks.includes(keyword) ? 'remove' : 'add';
+    const res = await api('/api/bookmark', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({keyword, action})
+    });
+    data.bookmarks = res.bookmarks || [];
+    renderHot();
+    renderBookmarks();
+}
+
+function renderBookmarks(){
+    const el = document.getElementById('bookmarkList');
+    if(!el) return;
+    const bm = data.bookmarks || [];
+    if(!bm.length){
+        el.innerHTML='<p style="font-size:.8rem;color:var(--dim)">핫토픽에서 🔗 버튼을 눌러 저장하세요</p>';
+        return;
+    }
+    el.innerHTML = bm.map(kw=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:.85rem;font-weight:600">${kw}</span>
+            <button class="btn btn-danger" style="font-size:.65rem" onclick="toggleBookmark('${kw.replace(/'/g,"\\'")}')">삭제</button>
+        </div>
+    `).join('');
 }
 
 // ══════════════════════════════════════
@@ -872,6 +955,9 @@ function renderAll(){
     renderNews();
     renderTrends();
     renderSettings();
+    renderBookmarks();
+    // 카테고리 바 동기화
+    document.querySelectorAll('.cat-chip').forEach(b=>b.classList.toggle('active',b.dataset.cat===currentCategory));
     document.getElementById('lastUpdated').textContent=data.last_updated?`마지막 갱신: ${new Date(data.last_updated).toLocaleString('ko-KR')}`:'갱신 중...';
     document.getElementById('articleCount').textContent=`${(data.articles||[]).length}건`;
 }

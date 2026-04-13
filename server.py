@@ -112,19 +112,51 @@ NUM_UNIT_RE = re.compile(r"\d+[%조억만원달러엔위안배]")
 
 
 # ──────────────────────────────────────────────
-#  채널 설정 관리
+#  사용자별 설정 관리 (쿠키 기반)
 # ──────────────────────────────────────────────
 
-def load_channels():
+USERS_DIR = os.path.join(BASE_DIR, "users")
+os.makedirs(USERS_DIR, exist_ok=True)
+
+
+def _user_file(uid):
+    return os.path.join(USERS_DIR, f"{uid}.json")
+
+
+def load_channels(uid=None):
+    """사용자별 설정 로드. uid 없으면 기본값."""
+    if uid:
+        path = _user_file(uid)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    # 기본값 또는 레거시 파일
     if os.path.exists(CHANNELS_FILE):
         with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"my_channel": None, "competitors": [], "category": "economy"}
+    return {"my_channel": None, "competitors": [], "category": "economy", "bookmarks": []}
 
 
-def save_channels(data):
-    with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def save_channels(data, uid=None):
+    """사용자별 설정 저장."""
+    if uid:
+        with open(_user_file(uid), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    else:
+        with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_or_create_uid(handler):
+    """쿠키에서 uid 읽거나 새로 생성."""
+    import uuid, http.cookies
+    cookie_str = handler.headers.get("Cookie", "")
+    cookies = http.cookies.SimpleCookie(cookie_str)
+    uid = cookies.get("nt_uid")
+    if uid:
+        return uid.value, False
+    new_uid = uuid.uuid4().hex[:12]
+    return new_uid, True
 
 
 def channel_id_from_input(text):
@@ -660,6 +692,130 @@ def auto_refresh():
 
 
 # ──────────────────────────────────────────────
+#  텔레그램 알림
+# ──────────────────────────────────────────────
+
+TELEGRAM_CONFIG = {
+    "token": "8690612482:AAGedhIN0Pe2AdVa9f8OJcckhPBB4rUBSTI",
+    "chat_id": "8682100018",
+    "category": "world",  # 국제정세
+    "morning_hour": 8,    # 매일 아침 8시
+}
+
+
+def send_telegram(text):
+    """텔레그램 메시지 전송."""
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    from urllib.parse import urlencode
+    token = TELEGRAM_CONFIG["token"]
+    data = urlencode({"chat_id": TELEGRAM_CONFIG["chat_id"], "text": text, "parse_mode": "HTML"}).encode()
+    try:
+        req = Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
+        urlopen(req, context=ctx, timeout=10)
+        return True
+    except Exception as e:
+        print(f"[WARN] 텔레그램 전송 실패: {e}")
+        return False
+
+
+def build_morning_message():
+    """매일 아침 영상 추천 메시지를 생성한다."""
+    cat = TELEGRAM_CONFIG["category"]
+    with _lock:
+        cat_data = _cache.get(cat, {})
+    topics = cat_data.get("topics", [])
+    if not topics:
+        return None
+
+    # 추천순 정렬
+    ranked = sorted(topics, key=lambda t: -(t.get("rec_score", 0)))[:10]
+
+    urgency_emoji = {"NOW": "🔴", "HOT": "🟠", "WARM": "🟡", "COOL": "⚪"}
+    now = datetime.now(KST)
+    date_str = now.strftime("%m/%d") + f"({'월화수목금토일'[now.weekday()]})"
+
+    lines = [f"🎬 <b>{date_str} 영상 추천 TOP {len(ranked)}</b>", "━━━━━━━━━━━━━━━", ""]
+
+    for i, t in enumerate(ranked):
+        emoji = urgency_emoji.get(t.get("urgency", ""), "⚪")
+        tags = []
+        tags.append(f"{emoji} {t.get('urgency', '')}")
+        if t.get("blue_ocean"):
+            tags.append("🔵 BLUE")
+        if t.get("yt_search"):
+            tags.append(f"🔍 YT {t.get('yt_suggestions', '')}건")
+        tags.append(f"📰 {t.get('score', 0)}개 소스")
+
+        # 한줄 이유 + 앵글 제안
+        if t.get("urgency") == "NOW" and t.get("blue_ocean"):
+            reason = "경쟁자 0, 지금 만들면 선점"
+            angle = f'"{t["keyword"]}" 지금 안 보면 늦는 이유'
+        elif t.get("urgency") == "NOW":
+            reason = "지금 터지는 중, 빠르게 업로드"
+            angle = f'"{t["keyword"]}" 터졌다... 내 돈은 괜찮을까?'
+        elif t.get("blue_ocean"):
+            reason = "경쟁채널 미진출, 선점 기회"
+            angle = f'아무도 안 다룬 {t["keyword"]}의 진짜 이유'
+        elif t.get("yt_search") and t.get("yt_suggestions", 0) >= 5:
+            reason = "YT검색 활발, 수요 검증됨"
+            angle = f'"{t["keyword"]}" 검색하면 안 나오는 핵심 정리'
+        elif t.get("score", 0) >= 4:
+            reason = "다수 매체 보도, 관심 높음"
+            angle = f'{t["keyword"]} 총정리 (뉴스에서 안 알려주는 것)'
+        else:
+            reason = "주목할 만한 주제"
+            angle = f'{t["keyword"]}이(가) 중요한 3가지 이유'
+
+        # 관련 뉴스 1개
+        top_article = ""
+        arts = t.get("articles", [])
+        if arts:
+            top_article = f"\n   📎 {arts[0].get('title', '')[:40]}..."
+
+        lines.append(f"{i+1}️⃣ <b>{t['keyword']}</b>")
+        lines.append(f"   {' · '.join(tags)}")
+        lines.append(f"   💡 {reason}")
+        lines.append(f"   🎯 앵글: {angle}")
+        if top_article:
+            lines.append(top_article)
+        lines.append("")
+
+    # 통계
+    total = len(topics)
+    blue = sum(1 for t in topics if t.get("blue_ocean"))
+    yt_active = sum(1 for t in topics if t.get("yt_search"))
+    lines.append("━━━━━━━━━━━━━━━")
+    lines.append(f"📊 전체 {total}개 | 🔵 블루오션 {blue}개 | 🔍 YT활발 {yt_active}개")
+    lines.append("👉 https://news-tracker-cx11.onrender.com")
+
+    return "\n".join(lines)
+
+
+def telegram_scheduler():
+    """매일 아침 알림을 보내는 스케줄러."""
+    import time
+    last_sent_date = None
+    while True:
+        now = datetime.now(KST)
+        target_hour = TELEGRAM_CONFIG["morning_hour"]
+        if now.hour == target_hour and now.date() != last_sent_date:
+            # 먼저 데이터 갱신
+            try:
+                refresh_cache()
+            except Exception:
+                pass
+            msg = build_morning_message()
+            if msg:
+                if send_telegram(msg):
+                    print(f"[{now.strftime('%H:%M')}] 텔레그램 아침 알림 전송 완료!")
+                    last_sent_date = now.date()
+        time.sleep(300)  # 5분마다 체크
+
+
+# ──────────────────────────────────────────────
 #  [MAX] 대본/제목/썸네일 생성 (템플릿 기반)
 # ──────────────────────────────────────────────
 
@@ -775,11 +931,13 @@ def generate_thumbnails(keyword):
 
 class Handler(SimpleHTTPRequestHandler):
 
-    def _json_response(self, data, status=200):
+    def _json_response(self, data, status=200, set_uid=None):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        if set_uid:
+            self.send_header("Set-Cookie", f"nt_uid={set_uid}; Path=/; Max-Age=31536000; SameSite=Lax")
         self.end_headers()
         self.wfile.write(body)
 
@@ -787,9 +945,13 @@ class Handler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length)) if length else {}
 
+    def _set_cookie(self, uid):
+        self.send_header("Set-Cookie", f"nt_uid={uid}; Path=/; Max-Age=31536000; SameSite=Lax")
+
     def do_GET(self):
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
+        uid, is_new = get_or_create_uid(self)
 
         if parsed.path == "/api/data":
             cat = params.get("category", ["economy"])[0]
@@ -807,10 +969,14 @@ class Handler(SimpleHTTPRequestHandler):
                     "last_updated": _shared.get("last_updated"),
                     "category": cat,
                 }
+            # 사용자 북마크 추가
+            user_data = load_channels(uid)
+            result["bookmarks"] = user_data.get("bookmarks", [])
             self._json_response(result)
+            # 새 사용자면 쿠키 설정은 _json_response 전에 해야 하므로 아래 방식 사용
 
         elif parsed.path == "/api/channels":
-            self._json_response(load_channels())
+            self._json_response(load_channels(uid))
 
         elif parsed.path == "/api/refresh":
             threading.Thread(target=refresh_cache, daemon=True).start()
@@ -823,22 +989,24 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        uid, is_new = get_or_create_uid(self)
+
         if self.path == "/api/channels/my":
             body = self._read_body()
-            channels = load_channels()
+            channels = load_channels(uid)
             raw = body.get("channel", "").strip()
             if raw:
                 cid = channel_id_from_input(raw)
                 channels["my_channel"] = {"id": cid, "name": body.get("name", "")}
             else:
                 channels["my_channel"] = None
-            save_channels(channels)
-            self._json_response({"ok": True, "channels": channels})
+            save_channels(channels, uid)
+            self._json_response({"ok": True, "channels": channels}, set_uid=uid if is_new else None)
             threading.Thread(target=refresh_cache, daemon=True).start()
 
         elif self.path == "/api/channels/competitor":
             body = self._read_body()
-            channels = load_channels()
+            channels = load_channels(uid)
             raw = body.get("channel", "").strip()
             if raw:
                 cid = channel_id_from_input(raw)
@@ -855,11 +1023,25 @@ class Handler(SimpleHTTPRequestHandler):
 
         elif self.path == "/api/channels/competitor/delete":
             body = self._read_body()
-            channels = load_channels()
+            channels = load_channels(uid)
             cid = body.get("id", "")
             channels["competitors"] = [c for c in channels["competitors"] if c["id"] != cid]
-            save_channels(channels)
+            save_channels(channels, uid)
             self._json_response({"ok": True, "channels": channels})
+
+        elif self.path == "/api/bookmark":
+            body = self._read_body()
+            channels = load_channels(uid)
+            bookmarks = channels.get("bookmarks", [])
+            kw = body.get("keyword", "")
+            action = body.get("action", "add")
+            if action == "add" and kw and kw not in bookmarks:
+                bookmarks.append(kw)
+            elif action == "remove" and kw in bookmarks:
+                bookmarks.remove(kw)
+            channels["bookmarks"] = bookmarks[:50]  # 최대 50개
+            save_channels(channels, uid)
+            self._json_response({"ok": True, "bookmarks": bookmarks})
 
         elif self.path == "/api/category":
             body = self._read_body()
@@ -947,5 +1129,10 @@ if __name__ == "__main__":
 
     # 자동 갱신 스레드
     threading.Thread(target=auto_refresh, daemon=True).start()
+
+    # 텔레그램 매일 아침 알림
+    if TELEGRAM_CONFIG["token"]:
+        threading.Thread(target=telegram_scheduler, daemon=True).start()
+        print(f"  텔레그램 알림: 매일 {TELEGRAM_CONFIG['morning_hour']}시")
 
     server.serve_forever()
