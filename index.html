@@ -605,7 +605,6 @@ function renderHot(){
             <div class="score-bar"><div class="score-fill" style="width:${Math.min(t.score*20,100)}%"></div></div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
                 <div class="source-tags" style="flex:1;margin-top:0">${t.sources.map(s=>`<span class="source-tag">${s}</span>`).join('')}</div>
-                <button class="btn btn-primary" style="padding:4px 12px;font-size:.7rem;flex-shrink:0" onclick="event.stopPropagation();openGenModal(${i})">&#9998; 대본생성</button>
             </div>
             <div class="articles-list" id="arts-${i}" style="display:none">
                 ${(t.articles||[]).slice(0,5).map(a=>`<div class="article-item"><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a><div style="font-size:.7rem;color:var(--dim);margin-top:2px">${a.source} &middot; ${timeAgo(a.pubDate)}</div></div>`).join('')}
