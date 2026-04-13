@@ -876,17 +876,22 @@ def build_morning_message():
         else:
             angle = f'"{label}" 핵심 정리 — 뉴스가 안 알려주는 것'
 
-        # 제목
+        # 제목 + 검색 링크
+        from urllib.parse import quote
         sub = f" ({', '.join(issue['sub_keywords'][:3])})" if issue["sub_keywords"] else ""
-        lines.append(f"{i+1}️⃣ <b>{label}</b>{sub}")
+        search_url = f"https://www.google.com/search?q={quote(label)}+뉴스&tbm=nws"
+        yt_url = f"https://www.youtube.com/results?search_query={quote(label)}"
+        lines.append(f'{i+1}️⃣ <b>{label}</b>{sub}')
         lines.append(f"   {' · '.join(tags)}")
+        lines.append(f'   🔗 <a href="{search_url}">뉴스 더보기</a> · <a href="{yt_url}">유튜브 검색</a>')
         lines.append(f"   🎯 {angle}")
 
         # 관련 기사 (레퍼런스)
         for a in arts[:3]:
-            title = a.get("title", "")[:45]
+            title = a.get("title", "")[:40]
             source = a.get("source", "")
-            lines.append(f"   📎 {title}... [{source}]")
+            link = a.get("link", "")
+            lines.append(f'   📎 <a href="{link}">{title}...</a> [{source}]')
 
         lines.append("")
 
