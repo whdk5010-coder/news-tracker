@@ -401,6 +401,7 @@
                 <li><b style="color:#f97316">HOT</b> = 6시간 이내. 오늘 안에 업로드</li>
                 <li><b style="color:#eab308">WARM</b> = 12시간 이내. 내일까지 괜찮음</li>
                 <li><span class="badge-BLUE" style="padding:2px 6px;border-radius:4px;font-size:.65rem">BLUE</span> = 경쟁채널이 안 다룬 블루오션!</li>
+                <li><b style="color:#ef4444">&#9654; YT검색중</b> = 유튜브에서 사람들이 실제 검색 중! 이걸 노려야 터짐</li>
             </ul>
         </div>
     </div>
@@ -527,6 +528,7 @@ function renderHot(){
                 <span style="color:#818cf8;font-weight:600">${t.score}개 소스</span>
                 <span style="color:var(--muted)">${t.age_hours<1?Math.round(t.age_hours*60)+'분 전':Math.round(t.age_hours)+'시간 전'}</span>
                 <span style="color:var(--muted)">${t.article_count}건</span>
+                ${t.yt_search?'<span style="color:#ef4444;font-weight:700">&#9654; YT검색중</span>':'<span style="color:var(--dim)">&#9654; YT검색없음</span>'}
                 ${t.rec_score>0?`<span style="color:#a78bfa">추천 ${t.rec_score}점</span>`:''}
             </div>
             <div class="score-bar"><div class="score-fill" style="width:${Math.min(t.score*20,100)}%"></div></div>

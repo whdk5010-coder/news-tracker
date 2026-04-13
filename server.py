@@ -522,6 +522,39 @@ _shared = {  # 카테고리 무관 공유 데이터
 _lock = threading.Lock()
 
 
+def check_youtube_search(keyword):
+    """유튜브에서 이 키워드를 실제로 검색하고 있는지 확인한다."""
+    try:
+        from urllib.parse import quote
+        url = f"https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&q={quote(keyword)}&hl=ko&gl=KR&ds=yt"
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=5) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+        # JSONP 응답 파싱: window.google.ac.h([["keyword",[["suggest1",...],...]]])
+        # 추천 검색어 수로 검색 활성도 판단
+        suggestions = text.count('","')
+        return {
+            "has_search": suggestions > 0,
+            "suggestion_count": suggestions,
+            "raw": text[:500] if suggestions > 0 else "",
+        }
+    except Exception:
+        return {"has_search": False, "suggestion_count": 0, "raw": ""}
+
+
+def enrich_topics_with_youtube(topics):
+    """핫토픽에 유튜브 검색 데이터를 추가한다."""
+    for topic in topics[:15]:  # 상위 15개만 (API 부담 줄이기)
+        kw = topic["keyword"]
+        yt = check_youtube_search(kw)
+        topic["yt_search"] = yt["has_search"]
+        topic["yt_suggestions"] = yt["suggestion_count"]
+        # 유튜브 점수 반영
+        if yt["has_search"]:
+            topic["rec_score"] = topic.get("rec_score", 0) + yt["suggestion_count"] * 2
+    return topics
+
+
 def extract_news_trending(articles, limit=15):
     """뉴스 기사에서 가장 많이 언급된 키워드를 추출한다."""
     kw_count = {}
@@ -545,6 +578,7 @@ def refresh_single(cat):
     articles = filter_articles_by_category(articles, cat)
     news_trending = extract_news_trending(articles)
     topics = analyze_topics(articles)
+    topics = enrich_topics_with_youtube(topics)
     with _lock:
         _cache[cat] = {
             "articles": articles[:100],
