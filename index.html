@@ -591,8 +591,11 @@ async function loadData(){
 function switchTab(id){
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-    document.querySelector(`.tab[data-tab="${id}"]`).classList.add('active');
-    document.getElementById('panel-'+id).classList.add('active');
+    const tab=document.querySelector(`.tab[data-tab="${id}"]`);
+    if(tab) tab.classList.add('active');
+    else document.querySelector('.tab[data-tab="more"]')?.classList.add('active');
+    const panel=document.getElementById('panel-'+id);
+    if(panel) panel.classList.add('active');
 }
 
 function toggleArticles(i){
@@ -749,16 +752,29 @@ function renderComp(){
 // ══════════════════════════════════════
 function renderNews(){
     const arts=data.articles||[];
+    const topics=data.topics||[];
     const el=document.getElementById('newsFeed');
     if(!arts.length){el.innerHTML='<div class="loading">뉴스가 없습니다.</div>';return;}
-    el.innerHTML=arts.slice(0,60).map(a=>`
-        <div class="news-item">
+
+    // 핫토픽 키워드에서 YT검색 상태 맵 만들기
+    const ytMap={};
+    topics.forEach(t=>{if(t.yt_search) ytMap[t.keyword]=t.yt_suggestions||0;});
+
+    el.innerHTML=arts.slice(0,60).map(a=>{
+        // 이 기사의 키워드 중 YT검색중인 게 있는지
+        const ytKws=(a.keywords||[]).filter(k=>ytMap[k]);
+        const isHot=topics.some(t=>t.urgency==='NOW'&&(a.keywords||[]).some(k=>t.keyword===k));
+        return `
+        <div class="news-item" ${isHot?'style="border-left:3px solid #ef4444"':''}>
             <a class="news-title" href="${a.link}" target="_blank" rel="noopener">${a.title}</a>
-            <div style="display:flex;gap:8px;margin-top:6px;font-size:.7rem;color:var(--dim)">
-                <span>${a.source}</span><span>${timeAgo(a.pubDate)}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:.7rem;color:var(--dim);align-items:center">
+                <span>${a.source}</span>
+                <span>${timeAgo(a.pubDate)}</span>
+                ${ytKws.length?`<span style="color:#ef4444;font-weight:700">&#9654; YT검색: ${ytKws.join(', ')}</span>`:''}
+                ${isHot?'<span style="color:#ef4444;font-weight:700">🔥 NOW</span>':''}
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
     document.getElementById('newsCount').textContent=arts.length;
 }
 
@@ -774,14 +790,21 @@ function renderTrends(){
 
     // 뉴스 기반 급상승 (메인)
     if(trends.length){
+        // YT검색 맵
+        const ytMap={};
+        (data.topics||[]).forEach(tp=>{if(tp.yt_search) ytMap[tp.keyword]=tp.yt_suggestions||0;});
+
         html+=`<div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">&#128240; 이 카테고리 뉴스에서 가장 많이 언급된 키워드</div>`;
-        html+=`<div class="card" style="padding:0;overflow:hidden">${trends.map((t,i)=>`
+        html+=`<div class="card" style="padding:0;overflow:hidden">${trends.map((t,i)=>{
+            const isYt=ytMap[t.keyword]>0;
+            return `
             <div class="trend-item" style="cursor:pointer" onclick="window.open('https://www.google.com/search?q='+encodeURIComponent('${t.keyword.replace(/'/g,"\\'")}'),'_blank')">
                 <span class="trend-rank ${i<3?'top3':''}">${i+1}</span>
                 <span style="flex:1;font-size:.85rem;font-weight:600;color:#fff">${t.keyword}</span>
+                ${isYt?`<span style="color:#ef4444;font-size:.7rem;font-weight:700">&#9654; YT ${ytMap[t.keyword]}건</span>`:''}
                 <span class="trend-traffic">${t.traffic}</span>
-            </div>
-        `).join('')}</div>`;
+            </div>`;
+        }).join('')}</div>`;
     } else {
         html+='<div class="loading">이 카테고리 급상승 키워드가 없습니다.</div>';
     }
