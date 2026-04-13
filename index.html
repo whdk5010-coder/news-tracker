@@ -65,6 +65,7 @@
         .btn-primary{background:#4f46e5;color:#fff}.btn-primary:hover{background:#4338ca}
         .btn-danger{background:#dc2626;color:#fff;padding:4px 10px;font-size:.7rem}.btn-danger:hover{background:#b91c1c}
         .btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted)}.btn-outline:hover{border-color:#6366f1;color:#818cf8}
+        .sort-btn.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
         .channel-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
 
         /* 뉴스/트렌드 */
@@ -226,6 +227,23 @@
 
     <!-- ========== 핫토픽 탭 ========== -->
     <div class="panel active" id="panel-hot">
+        <!-- 범례 -->
+        <div class="card" style="padding:10px 14px;margin-bottom:10px;font-size:.72rem;line-height:1.8;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center">
+            <span><span class="badge badge-NOW">NOW</span> 3시간 이내</span>
+            <span><span class="badge badge-HOT">HOT</span> 6시간 이내</span>
+            <span><span class="badge badge-WARM">WARM</span> 12시간 이내</span>
+            <span><span class="badge badge-COOL">COOL</span> 12시간+</span>
+            <span><span class="badge badge-BLUE">BLUE</span> 경쟁채널 미진출</span>
+            <span style="color:#ef4444;font-weight:700">&#9654; YT검색중</span> = 유튜브에서 검색 활발
+            <span style="color:var(--dim)">✓ 다룸</span> = 내가 이미 다룬 주제
+        </div>
+        <!-- 정렬 -->
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+            <button class="btn btn-outline sort-btn active" onclick="sortTopics('rec')" style="padding:4px 10px;font-size:.7rem">추천순</button>
+            <button class="btn btn-outline sort-btn" onclick="sortTopics('new')" style="padding:4px 10px;font-size:.7rem">최신순</button>
+            <button class="btn btn-outline sort-btn" onclick="sortTopics('sources')" style="padding:4px 10px;font-size:.7rem">소스 많은순</button>
+            <button class="btn btn-outline sort-btn" onclick="sortTopics('yt')" style="padding:4px 10px;font-size:.7rem">YT검색순</button>
+        </div>
         <div id="urgentBanner"></div>
         <div id="hotTopics"><div class="loading"><div class="spinner"></div>뉴스를 수집하고 있어요...</div></div>
     </div>
@@ -535,8 +553,28 @@ function toggleArticles(i){
 // ══════════════════════════════════════
 //  렌더: 핫토픽
 // ══════════════════════════════════════
+let currentSort = 'rec';
+
+function sortTopics(by){
+    currentSort = by;
+    document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));
+    event.target.classList.add('active');
+    renderHot();
+}
+
+function getSortedTopics(){
+    const topics = [...(data.topics||[])];
+    switch(currentSort){
+        case 'new': topics.sort((a,b)=>a.age_hours-b.age_hours); break;
+        case 'sources': topics.sort((a,b)=>b.score-a.score); break;
+        case 'yt': topics.sort((a,b)=>(b.yt_suggestions||0)-(a.yt_suggestions||0)); break;
+        default: topics.sort((a,b)=>(b.rec_score||0)-(a.rec_score||0)); break;
+    }
+    return topics;
+}
+
 function renderHot(){
-    const topics=data.topics||[];
+    const topics=getSortedTopics();
     const el=document.getElementById('hotTopics');
 
     // 긴급 배너
@@ -561,7 +599,7 @@ function renderHot(){
                 <span style="color:#818cf8;font-weight:600">${t.score}개 소스</span>
                 <span style="color:var(--muted)">${t.age_hours<1?Math.round(t.age_hours*60)+'분 전':Math.round(t.age_hours)+'시간 전'}</span>
                 <span style="color:var(--muted)">${t.article_count}건</span>
-                ${t.yt_search?'<span style="color:#ef4444;font-weight:700">&#9654; YT검색중</span>':'<span style="color:var(--dim)">&#9654; YT검색없음</span>'}
+                ${t.yt_search?`<span style="color:#ef4444;font-weight:700">&#9654; YT검색 ${t.yt_suggestions||''}건</span>`:'<span style="color:var(--dim)">&#9654; YT없음</span>'}
                 ${t.rec_score>0?`<span style="color:#a78bfa">추천 ${t.rec_score}점</span>`:''}
             </div>
             <div class="score-bar"><div class="score-fill" style="width:${Math.min(t.score*20,100)}%"></div></div>
