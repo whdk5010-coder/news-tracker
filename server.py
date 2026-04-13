@@ -246,20 +246,80 @@ def fetch_trends():
     try:
         xml = fetch_url(TRENDS_URL)
         root = ET.fromstring(xml)
+        from urllib.parse import quote
         for item in root.iter("item"):
             keyword = item.findtext("title", "")
             traffic = ""
+            # 관련 뉴스 제목 수집 (카테고리 판별용)
+            news_titles = []
             for child in item:
                 if "approx_traffic" in child.tag:
                     traffic = child.text or ""
-            # 구글 검색 링크로 연결
-            from urllib.parse import quote
+                if "news_item_title" in child.tag:
+                    news_titles.append(child.text or "")
+            # 하위 요소에서도 뉴스 제목 추출
+            for ni in item.iter():
+                if "news_item_title" in ni.tag and ni.text:
+                    news_titles.append(ni.text)
             link = f"https://www.google.com/search?q={quote(keyword)}"
             if keyword:
-                trends.append({"keyword": keyword, "traffic": traffic, "link": link})
+                trends.append({
+                    "keyword": keyword,
+                    "traffic": traffic,
+                    "link": link,
+                    "news_titles": news_titles[:3],
+                })
     except Exception as e:
         print(f"  [WARN] 구글 트렌드 실패: {e}")
     return trends
+
+
+# 카테고리별 관련 키워드 (필터링용)
+CATEGORY_KEYWORDS = {
+    "economy": {"경제","주식","코스피","코스닥","환율","금리","유가","원유","금값","투자","ETF","채권","펀드","은행","증시","관세","무역","수출","수입","GDP","인플레","금융","부채","적자","흑자","배당","IPO","상장","기업","매출","영업이익","연준","한은","기재부"},
+    "politics": {"정치","국회","대통령","여당","야당","선거","후보","공천","탄핵","법안","의원","장관","청와대","총리","검찰","경찰","수사","기소","재판","판결","헌법","민주당","국민의힘","개혁"},
+    "tech": {"AI","인공지능","반도체","엔비디아","삼성전자","테슬라","애플","구글","챗봇","GPT","로봇","자율주행","클라우드","데이터","스타트업","앱","소프트웨어","IT","테크","배터리","전기차","양자"},
+    "world": {"전쟁","우크라이나","러시아","이란","이스라엘","트럼프","바이든","중국","일본","대만","북한","NATO","외교","정상회담","미사일","핵","제재","호르무즈","팔레스타인"},
+    "realestate": {"부동산","아파트","전세","월세","집값","분양","청약","재건축","재개발","대출","LTV","DSR","주담대","매매","임대","공급","입주","모기지","갭투자"},
+    "entertainment": {"배우","드라마","영화","아이돌","케이팝","컴백","앨범","콘서트","예능","방송","넷플릭스","디즈니","웨이브","시청률","흥행","연기","감독","시상식","데뷔","뮤비"},
+    "sports": {"야구","축구","농구","KBO","EPL","NBA","올림픽","월드컵","감독","선수","경기","승리","우승","홈런","골","리그","프로야구","국대","이적","FA"},
+    "health": {"건강","병원","의사","치료","질병","암","약","수술","백신","전염병","다이어트","운동","영양","정신건강","우울증","코로나","의학","임상","FDA"},
+    "religion": {"교회","사찰","목사","신부","스님","예배","기도","성경","불교","기독교","천주교","이슬람","종교","신학","선교","절","성당"},
+}
+
+
+def filter_trends_by_category(trends, category):
+    """카테고리와 관련된 트렌드만 필터링."""
+    if category not in CATEGORY_KEYWORDS:
+        return trends
+
+    cat_kws = CATEGORY_KEYWORDS[category]
+    filtered = []
+    for t in trends:
+        # 키워드 자체가 매칭
+        if any(kw in t["keyword"] for kw in cat_kws):
+            filtered.append(t)
+            continue
+        # 관련 뉴스 제목에 매칭
+        all_text = " ".join(t.get("news_titles", []))
+        if any(kw in all_text for kw in cat_kws):
+            filtered.append(t)
+    return filtered
+
+
+def filter_articles_by_category(articles, category):
+    """카테고리와 무관한 기사를 걸러낸다."""
+    if category not in CATEGORY_KEYWORDS:
+        return articles
+
+    cat_kws = CATEGORY_KEYWORDS[category]
+    filtered = []
+    for a in articles:
+        title = a.get("title", "")
+        if any(kw in title for kw in cat_kws):
+            filtered.append(a)
+    # 너무 적으면 전체 반환 (소스가 부족한 경우)
+    return filtered if len(filtered) >= 5 else articles
 
 
 # ──────────────────────────────────────────────
@@ -465,6 +525,7 @@ _lock = threading.Lock()
 def refresh_single(cat):
     """단일 카테고리 수집."""
     articles, errors = fetch_all(cat)
+    articles = filter_articles_by_category(articles, cat)
     topics = analyze_topics(articles)
     with _lock:
         _cache[cat] = {
@@ -576,7 +637,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "topics": cat_data.get("topics", []),
                     "recommendations": cat_data.get("recommendations", []),
                     "errors": cat_data.get("errors", []),
-                    "trends": _shared.get("trends", []),
+                    "trends": filter_trends_by_category(_shared.get("trends", []), cat),
                     "competitors": _shared.get("competitors", []),
                     "my_videos": _shared.get("my_videos", []),
                     "last_updated": _shared.get("last_updated"),
