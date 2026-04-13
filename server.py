@@ -252,7 +252,9 @@ def fetch_trends():
             for child in item:
                 if "approx_traffic" in child.tag:
                     traffic = child.text or ""
-            link = item.findtext("link", "")
+            # 구글 검색 링크로 연결
+            from urllib.parse import quote
+            link = f"https://www.google.com/search?q={quote(keyword)}"
             if keyword:
                 trends.append({"keyword": keyword, "traffic": traffic, "link": link})
     except Exception as e:
