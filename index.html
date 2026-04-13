@@ -458,6 +458,39 @@
     </div>
 </div>
 
+<!-- 생성 모달 (MAX) -->
+<div class="modal-overlay" id="genModal" onclick="if(event.target===this)closeGenModal()">
+    <div class="modal" style="max-width:600px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h2 id="genModalTitle" style="margin:0">대본 생성</h2>
+            <button onclick="closeGenModal()" style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer">&#10005;</button>
+        </div>
+
+        <!-- 탭 -->
+        <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--border)">
+            <div class="gen-tab active" data-gtab="script" onclick="switchGenTab('script')" style="padding:8px 16px;font-size:.82rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">&#128221; 대본</div>
+            <div class="gen-tab" data-gtab="titles" onclick="switchGenTab('titles')" style="padding:8px 16px;font-size:.82rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">&#127919; 제목</div>
+            <div class="gen-tab" data-gtab="thumbs" onclick="switchGenTab('thumbs')" style="padding:8px 16px;font-size:.82rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">&#127912; 썸네일</div>
+        </div>
+
+        <!-- 대본 -->
+        <div id="genScript" class="gen-panel">
+            <div id="scriptContent" style="background:#0f172a;border-radius:10px;padding:16px;font-size:.82rem;line-height:1.8;white-space:pre-wrap;max-height:400px;overflow-y:auto;color:var(--text)"></div>
+            <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="copyGenContent('scriptContent')">대본 복사하기</button>
+        </div>
+
+        <!-- 제목 -->
+        <div id="genTitles" class="gen-panel" style="display:none">
+            <div id="titlesContent"></div>
+        </div>
+
+        <!-- 썸네일 -->
+        <div id="genThumbs" class="gen-panel" style="display:none">
+            <div id="thumbsContent"></div>
+        </div>
+    </div>
+</div>
+
 <script>
 // ══════════════════════════════════════
 //  상태
@@ -532,7 +565,10 @@ function renderHot(){
                 ${t.rec_score>0?`<span style="color:#a78bfa">추천 ${t.rec_score}점</span>`:''}
             </div>
             <div class="score-bar"><div class="score-fill" style="width:${Math.min(t.score*20,100)}%"></div></div>
-            <div class="source-tags">${t.sources.map(s=>`<span class="source-tag">${s}</span>`).join('')}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+                <div class="source-tags" style="flex:1;margin-top:0">${t.sources.map(s=>`<span class="source-tag">${s}</span>`).join('')}</div>
+                <button class="btn btn-primary" style="padding:4px 12px;font-size:.7rem;flex-shrink:0" onclick="event.stopPropagation();openGenModal(${i})">&#9998; 대본생성</button>
+            </div>
             <div class="articles-list" id="arts-${i}" style="display:none">
                 ${(t.articles||[]).slice(0,5).map(a=>`<div class="article-item"><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a><div style="font-size:.7rem;color:var(--dim);margin-top:2px">${a.source} &middot; ${timeAgo(a.pubDate)}</div></div>`).join('')}
             </div>
@@ -905,6 +941,87 @@ function showPayDetail(method){
             </div>
         </div>`;
     }
+}
+
+// ══════════════════════════════════════
+//  [MAX] 대본/제목/썸네일 생성
+// ══════════════════════════════════════
+async function openGenModal(topicIdx){
+    const topic = (data.topics||[])[topicIdx];
+    if(!topic) return;
+
+    document.getElementById('genModalTitle').textContent = `${topic.keyword} — 콘텐츠 생성`;
+    document.getElementById('genModal').classList.add('show');
+    document.getElementById('scriptContent').textContent = '생성 중...';
+    document.getElementById('titlesContent').innerHTML = '';
+    document.getElementById('thumbsContent').innerHTML = '';
+    switchGenTab('script');
+
+    try {
+        const res = await api('/api/generate', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                keyword: topic.keyword,
+                category: currentCategory,
+                articles: topic.articles || [],
+            })
+        });
+
+        // 대본
+        document.getElementById('scriptContent').textContent = res.script || '생성 실패';
+
+        // 제목
+        const titles = res.titles || [];
+        document.getElementById('titlesContent').innerHTML = titles.map((t,i) => `
+            <div style="display:flex;align-items:center;gap:8px;padding:10px;background:#0f172a;border-radius:8px;margin-bottom:6px">
+                <span style="color:#818cf8;font-weight:800;font-size:1rem">${i+1}</span>
+                <span style="flex:1;font-size:.85rem;color:#fff">${t}</span>
+                <button class="copy-btn" onclick="event.stopPropagation();navigator.clipboard.writeText('${t.replace(/'/g,"\\'")}')">복사</button>
+            </div>
+        `).join('');
+
+        // 썸네일
+        const thumbs = res.thumbnails || [];
+        document.getElementById('thumbsContent').innerHTML = thumbs.map((t,i) => `
+            <div class="card" style="margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <span style="background:#4338ca;color:#fff;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700">${t.layout}</span>
+                    <span style="font-size:.85rem;font-weight:600;color:#fff">${t.text_main}</span>
+                </div>
+                <div style="font-size:.78rem;color:var(--muted);line-height:1.6">
+                    <p><b>서브 텍스트:</b> ${t.text_sub}</p>
+                    <p><b>스타일:</b> ${t.style}</p>
+                    <p><b>색상:</b> ${t.colors}</p>
+                </div>
+            </div>
+        `).join('');
+
+    } catch(e) {
+        document.getElementById('scriptContent').textContent = '생성 실패: ' + e.message;
+    }
+}
+
+function closeGenModal(){
+    document.getElementById('genModal').classList.remove('show');
+}
+
+function switchGenTab(tab){
+    document.querySelectorAll('.gen-tab').forEach(t=>{
+        t.style.color = t.dataset.gtab===tab ? '#818cf8' : 'var(--muted)';
+        t.style.borderBottomColor = t.dataset.gtab===tab ? '#818cf8' : 'transparent';
+    });
+    document.querySelectorAll('.gen-panel').forEach(p=>p.style.display='none');
+    document.getElementById(tab==='script'?'genScript':tab==='titles'?'genTitles':'genThumbs').style.display='block';
+}
+
+function copyGenContent(elId){
+    const text = document.getElementById(elId).textContent;
+    navigator.clipboard.writeText(text).then(()=>{
+        const btn = event.target;
+        btn.textContent = '복사 완료!';
+        setTimeout(()=>btn.textContent='대본 복사하기', 1500);
+    });
 }
 
 function copyText(text){

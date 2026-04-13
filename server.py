@@ -660,6 +660,116 @@ def auto_refresh():
 
 
 # ──────────────────────────────────────────────
+#  [MAX] 대본/제목/썸네일 생성 (템플릿 기반)
+# ──────────────────────────────────────────────
+
+SCRIPT_TEMPLATES = {
+    "economy": {
+        "hook": "지금 {keyword} 때문에 난리입니다. 근데 뉴스에서 안 알려주는 게 하나 있어요.",
+        "intro": "오늘은 {keyword}이(가) 왜 터졌는지, 그리고 이게 내 돈에 어떤 영향을 주는지 정리해보겠습니다.",
+        "body": [
+            "## 1. 무슨 일이 벌어졌나\n{articles}",
+            "## 2. 왜 이게 중요한가\n- 내 월급/투자/부동산에 미치는 영향\n- 전문가들의 전망",
+            "## 3. 지금 뭘 해야 하나\n- 구체적 행동 가이드\n- 주의할 점",
+        ],
+        "closing": "정리하면, {keyword} 상황은 아직 진행 중입니다. 다음 영상에서 후속 상황 전해드리겠습니다.",
+    },
+    "politics": {
+        "hook": "{keyword}, 이게 왜 갑자기 이슈가 됐을까요?",
+        "intro": "오늘은 {keyword} 사태의 배경과 앞으로의 전망을 정리해보겠습니다.",
+        "body": [
+            "## 1. 사건의 발단\n{articles}",
+            "## 2. 각 진영의 입장\n- 여당 측\n- 야당 측\n- 전문가 분석",
+            "## 3. 앞으로의 전망\n- 시나리오별 정리",
+        ],
+        "closing": "{keyword} 이슈, 상황이 바뀌면 바로 전해드리겠습니다.",
+    },
+    "default": {
+        "hook": "{keyword}, 지금 모르면 늦습니다.",
+        "intro": "오늘은 {keyword}에 대해 핵심만 정리해보겠습니다.",
+        "body": [
+            "## 1. 무슨 일인가\n{articles}",
+            "## 2. 왜 중요한가\n- 핵심 포인트 정리",
+            "## 3. 정리 및 전망\n- 앞으로 어떻게 될 것인가",
+        ],
+        "closing": "{keyword} 관련해서 새로운 소식 나오면 바로 전해드리겠습니다.",
+    },
+}
+
+TITLE_FORMULAS = [
+    '"{keyword}" 지금 난리난 진짜 이유',
+    '{keyword}, 아무도 안 알려주는 충격적 진실',
+    '"{keyword}" 터졌다... 지금 안 보면 늦습니다',
+    '{keyword} 때문에 벌어진 일 (심각합니다)',
+    '속보 | {keyword} 상황 총정리 (핵심만)',
+]
+
+THUMBNAIL_TEMPLATES = [
+    {
+        "layout": "충격형",
+        "text_main": "{keyword}",
+        "text_sub": "지금 난리",
+        "style": "빨간 배경 + 흰 글씨 + 놀란 표정 인물",
+        "colors": "빨강/검정/흰색",
+    },
+    {
+        "layout": "경고형",
+        "text_main": "{keyword}",
+        "text_sub": "긴급 속보",
+        "style": "검정 배경 + 노란 경고 텍스트 + 화살표",
+        "colors": "검정/노랑/빨강",
+    },
+    {
+        "layout": "숫자형",
+        "text_main": "{keyword}",
+        "text_sub": "3가지 핵심",
+        "style": "파란 배경 + 큰 숫자 + 그래프 이미지",
+        "colors": "남색/흰색/주황",
+    },
+]
+
+
+def generate_script(keyword, category, articles):
+    """핫토픽 키워드로 대본 초안을 생성한다."""
+    tpl = SCRIPT_TEMPLATES.get(category, SCRIPT_TEMPLATES["default"])
+
+    # 관련 기사 요약
+    article_lines = ""
+    for a in articles[:5]:
+        article_lines += f"- {a.get('title', '')}\n  출처: {a.get('source', '')}\n"
+
+    script = f"""# {keyword} — 대본 초안
+
+## 훅 (0~5초)
+{tpl['hook'].format(keyword=keyword)}
+
+## 인트로 (5~30초)
+{tpl['intro'].format(keyword=keyword)}
+
+"""
+    for section in tpl["body"]:
+        script += section.format(keyword=keyword, articles=article_lines) + "\n\n"
+
+    script += f"""## 클로징
+{tpl['closing'].format(keyword=keyword)}
+
+---
+*이 초안은 템플릿 기반입니다. AI 대본 생성은 Max 플랜에서 지원됩니다.*
+"""
+    return script
+
+
+def generate_titles(keyword):
+    """제목 후보 5개를 생성한다."""
+    return [f.format(keyword=keyword) for f in TITLE_FORMULAS]
+
+
+def generate_thumbnails(keyword):
+    """썸네일 프롬프트 3개를 생성한다."""
+    return [{k: v.format(keyword=keyword) if isinstance(v, str) else v for k, v in t.items()} for t in THUMBNAIL_TEMPLATES]
+
+
+# ──────────────────────────────────────────────
 #  HTTP 서버
 # ──────────────────────────────────────────────
 
@@ -758,6 +868,18 @@ class Handler(SimpleHTTPRequestHandler):
             save_channels(channels)
             self._json_response({"ok": True, "category": channels["category"]})
             threading.Thread(target=refresh_cache, daemon=True).start()
+
+        elif self.path == "/api/generate":
+            body = self._read_body()
+            keyword = body.get("keyword", "")
+            category = body.get("category", "economy")
+            articles = body.get("articles", [])
+            result = {
+                "script": generate_script(keyword, category, articles),
+                "titles": generate_titles(keyword),
+                "thumbnails": generate_thumbnails(keyword),
+            }
+            self._json_response(result)
 
         elif self.path == "/api/refresh":
             threading.Thread(target=refresh_cache, daemon=True).start()
