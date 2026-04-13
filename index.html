@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>뉴스 트래커</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        :root { --bg:#0f172a; --card:rgba(30,41,59,0.9); --border:rgba(71,85,105,0.4); --text:#e2e8f0; --muted:#94a3b8; --dim:#64748b; }
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-tap-highlight-color:transparent;min-height:100dvh}
+
+        .header{position:sticky;top:0;z-index:50;background:rgba(15,23,42,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:12px 16px}
+        .header-title{font-size:1.25rem;font-weight:800;color:#fff}
+        .header-sub{font-size:0.75rem;color:var(--muted);margin-top:2px}
+
+        .tabs{display:flex;background:#1e293b;border-bottom:1px solid var(--border);position:sticky;top:56px;z-index:40;overflow-x:auto;-webkit-overflow-scrolling:touch}
+        .tab{flex:none;padding:10px 14px;text-align:center;font-size:0.78rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:all .2s}
+        .tab.active{color:#818cf8;border-bottom-color:#818cf8}
+        .tab .cnt{display:inline-block;background:#334155;color:var(--muted);font-size:.6rem;padding:1px 5px;border-radius:99px;margin-left:3px}
+        .tab.active .cnt{background:#4338ca;color:#c7d2fe}
+        .tab .pro-badge{font-size:.55rem;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:1px 4px;border-radius:4px;margin-left:3px;vertical-align:top}
+
+        .content{padding:12px;max-width:860px;margin:0 auto}
+        .panel{display:none}.panel.active{display:block}
+
+        /* 카드 공통 */
+        .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;transition:transform .15s}
+        .card:active{transform:scale(0.98)}
+
+        /* 배지 */
+        .badge{padding:3px 8px;border-radius:6px;font-size:.65rem;font-weight:800;letter-spacing:.5px}
+        .badge-NOW{background:#dc2626;color:#fff;animation:pulse 1.5s infinite}
+        .badge-HOT{background:#ea580c;color:#fff}
+        .badge-WARM{background:#ca8a04;color:#1e293b}
+        .badge-COOL{background:#475569;color:#cbd5e1}
+        .badge-BLUE{background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+        .score-bar{height:3px;background:#334155;border-radius:99px;margin-top:8px;overflow:hidden}
+        .score-fill{height:100%;background:#6366f1;border-radius:99px;transition:width .5s}
+        .source-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+        .source-tag{background:#334155;color:var(--muted);padding:2px 8px;border-radius:6px;font-size:.65rem}
+
+        /* 긴급 배너 */
+        .urgent{background:linear-gradient(135deg,#7f1d1d,#991b1b);border:1px solid #dc2626;border-radius:12px;padding:12px 16px;margin-bottom:12px;animation:glow 2s ease-in-out infinite}
+        @keyframes glow{0%,100%{box-shadow:0 0 8px rgba(220,38,38,.3)}50%{box-shadow:0 0 20px rgba(220,38,38,.6)}}
+
+        /* 추천카드 */
+        .rec-card{background:linear-gradient(135deg,#1e1b4b,#312e81);border:1px solid #4338ca;border-radius:12px;padding:14px;margin-bottom:10px}
+        .rec-score{background:#4f46e5;color:#fff;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700}
+
+        /* 경쟁채널 영상 */
+        .comp-video{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+        .comp-video:last-child{border-bottom:none}
+        .comp-thumb{width:120px;height:68px;border-radius:8px;background:#334155;flex-shrink:0;overflow:hidden}
+        .comp-thumb img{width:100%;height:100%;object-fit:cover}
+
+        /* 설정 */
+        .input-row{display:flex;gap:8px;margin-bottom:10px}
+        .input-row input{flex:1;background:#1e293b;border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:#fff;font-size:.85rem;outline:none}
+        .input-row input::placeholder{color:var(--dim)}
+        .input-row input:focus{border-color:#6366f1}
+        .btn{padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:600;cursor:pointer;border:none;transition:all .2s}
+        .btn-primary{background:#4f46e5;color:#fff}.btn-primary:hover{background:#4338ca}
+        .btn-danger{background:#dc2626;color:#fff;padding:4px 10px;font-size:.7rem}.btn-danger:hover{background:#b91c1c}
+        .btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted)}.btn-outline:hover{border-color:#6366f1;color:#818cf8}
+        .channel-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
+
+        /* 뉴스/트렌드 */
+        .news-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+        .news-title{font-size:.85rem;color:#e2e8f0;font-weight:500;line-height:1.5;text-decoration:none;display:block}
+        .news-title:hover{color:#818cf8}
+        .trend-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)}
+        .trend-item:last-child{border-bottom:none}
+        .trend-rank{width:28px;height:28px;background:#334155;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:800;color:var(--muted);margin-right:12px;flex-shrink:0}
+        .trend-rank.top3{background:#4338ca;color:#c7d2fe}
+        .trend-traffic{background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:3px 10px;border-radius:99px;font-size:.7rem;font-weight:700;color:#fff}
+
+        /* 팁 */
+        .tip-card{background:linear-gradient(135deg,#1e1b4b,#312e81);border:1px solid #4338ca;border-radius:12px;padding:14px;margin-bottom:12px}
+        .tip-card h3{font-size:.85rem;font-weight:700;color:#a5b4fc;margin-bottom:8px}
+        .tip-card li{font-size:.78rem;color:#c7d2fe;line-height:1.6;list-style:none;padding-left:16px;position:relative}
+        .tip-card li::before{content:'';position:absolute;left:0;top:8px;width:6px;height:6px;background:#818cf8;border-radius:50%}
+
+        /* 카테고리 선택 */
+        .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:16px}
+        .cat-btn{padding:12px;border-radius:10px;text-align:center;cursor:pointer;border:1px solid var(--border);background:var(--card);transition:all .2s;font-size:.8rem;font-weight:600}
+        .cat-btn:hover{border-color:#6366f1}
+        .cat-btn.active{background:#4338ca;border-color:#6366f1;color:#fff}
+        .cat-icon{font-size:1.3rem;display:block;margin-bottom:4px}
+
+        .articles-list{margin-top:10px;border-top:1px solid var(--border);padding-top:8px}
+        .article-item{padding:6px 0;border-bottom:1px solid rgba(71,85,105,0.2)}
+        .article-item:last-child{border-bottom:none}
+        .article-item a{color:#cbd5e1;text-decoration:none;font-size:.8rem;line-height:1.4;display:block}
+        .article-item a:hover{color:#818cf8}
+
+        .loading{text-align:center;padding:40px 20px;color:var(--muted)}
+        .spinner{width:32px;height:32px;border:3px solid #334155;border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .error-box{background:#451a03;border:1px solid #92400e;border-radius:12px;padding:14px;margin-bottom:10px;font-size:.8rem;color:#fbbf24}
+
+        .fab{position:fixed;bottom:20px;right:20px;width:52px;height:52px;background:#4f46e5;color:#fff;border:none;border-radius:50%;font-size:1.3rem;cursor:pointer;box-shadow:0 4px 20px rgba(79,70,229,0.4);display:flex;align-items:center;justify-content:center;z-index:100;transition:transform .2s}
+        .fab:active{transform:scale(0.9)}
+        .fab.spinning{animation:spin 1s linear infinite}
+
+        .empty-state{text-align:center;padding:60px 20px;color:var(--dim)}
+        .empty-state .icon{font-size:3rem;margin-bottom:12px}
+
+        /* 가격 플랜 */
+        .plan-grid{display:grid;grid-template-columns:1fr;gap:12px}
+        .plan{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;position:relative;transition:transform .2s}
+        .plan:hover{transform:translateY(-2px)}
+        .plan.popular{border-color:#6366f1;box-shadow:0 0 30px rgba(99,102,241,0.15)}
+        .plan .pop-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;padding:3px 14px;border-radius:99px;font-size:.7rem;font-weight:700}
+        .plan-name{font-size:1rem;font-weight:700;color:#fff}
+        .plan-price{font-size:2rem;font-weight:800;color:#fff;margin:8px 0}
+        .plan-price span{font-size:.85rem;font-weight:400;color:var(--muted)}
+        .plan-features{list-style:none;margin:16px 0}
+        .plan-features li{font-size:.8rem;color:var(--muted);padding:4px 0;padding-left:20px;position:relative}
+        .plan-features li::before{content:'✓';position:absolute;left:0;color:#4ade80;font-weight:700}
+        .plan-features li.disabled{color:var(--dim);text-decoration:line-through}
+        .plan-features li.disabled::before{content:'—';color:var(--dim)}
+        .plan-btn{width:100%;padding:10px;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;border:none;margin-top:12px;transition:all .2s}
+
+        /* 결제 모달 */
+        .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;padding:16px}
+        .modal-overlay.show{display:flex}
+        .modal{background:#1e293b;border:1px solid var(--border);border-radius:16px;padding:24px;max-width:440px;width:100%;max-height:90vh;overflow-y:auto}
+        .modal h2{font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:16px}
+        .pay-method{display:flex;align-items:center;gap:12px;padding:14px;background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
+        .pay-method:hover{border-color:#6366f1}
+        .pay-method .icon{font-size:1.5rem}
+        .pay-method .label{font-size:.85rem;font-weight:600;color:#fff}
+        .pay-method .desc{font-size:.72rem;color:var(--muted)}
+        .pay-detail{background:#0f172a;border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:12px;font-size:.82rem;line-height:1.7;color:var(--text)}
+        .copy-btn{background:#334155;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;margin-left:8px}
+        .copy-btn:hover{background:#475569}
+
+        /* 언어 토글 */
+        .lang-toggle{background:#334155;border:1px solid var(--border);border-radius:8px;padding:2px;display:inline-flex;margin-left:8px}
+        .lang-btn{padding:3px 10px;border-radius:6px;font-size:.7rem;font-weight:600;color:var(--muted);cursor:pointer;border:none;background:transparent}
+        .lang-btn.active{background:#4f46e5;color:#fff}
+
+        /* 테마 토글 */
+        .theme-toggle{background:#334155;border:1px solid var(--border);border-radius:8px;padding:2px;display:inline-flex;margin-left:6px}
+        .theme-btn{padding:3px 8px;border-radius:6px;font-size:.75rem;cursor:pointer;border:none;background:transparent;color:var(--muted)}
+        .theme-btn.active{background:#4f46e5;color:#fff}
+
+        /* 라이트모드 */
+        body.light{--bg:#f1f5f9;--card:rgba(255,255,255,0.95);--border:rgba(203,213,225,0.6);--text:#1e293b;--muted:#64748b;--dim:#94a3b8}
+        body.light{background:var(--bg);color:var(--text)}
+        body.light .header{background:rgba(241,245,249,0.95)}
+        body.light .header-title{color:#0f172a}
+        body.light .tabs{background:#fff}
+        body.light .tab{color:var(--muted)}
+        body.light .tab.active{color:#4f46e5}
+        body.light .source-tag{background:#e2e8f0;color:#475569}
+        body.light .badge-COOL{background:#cbd5e1;color:#334155}
+        body.light .news-title{color:#1e293b}
+        body.light .trend-rank{background:#e2e8f0;color:#475569}
+        body.light .trend-rank.top3{background:#4338ca;color:#c7d2fe}
+        body.light .cat-btn{background:#fff;color:#334155;border-color:#cbd5e1}
+        body.light .cat-btn.active{background:#4338ca;color:#fff}
+        body.light .plan{background:#fff}
+        body.light .plan-name{color:#0f172a}
+        body.light .plan-price{color:#0f172a}
+        body.light .modal{background:#fff}
+        body.light .pay-detail{background:#f8fafc}
+        body.light .pay-method{background:#f8fafc;border-color:#e2e8f0}
+        body.light .pay-method .label{color:#0f172a}
+        body.light .error-box{background:#fef3c7;border-color:#f59e0b;color:#92400e}
+        body.light .fab{box-shadow:0 4px 20px rgba(79,70,229,0.2)}
+        body.light .theme-toggle, body.light .lang-toggle{background:#e2e8f0;border-color:#cbd5e1}
+        body.light .channel-item{background:#f8fafc;border-color:#e2e8f0}
+        body.light .input-row input{background:#f8fafc;border-color:#cbd5e1;color:#0f172a}
+        body.light .score-bar{background:#e2e8f0}
+        body.light .copy-btn{background:#e2e8f0;color:#334155}
+        body.light .card{background:var(--card);border-color:var(--border)}
+
+        @media(min-width:640px){.plan-grid{grid-template-columns:repeat(3,1fr)}}
+        @media(min-width:768px){
+            .content{padding:20px}
+            .header{padding:16px 24px}
+            .header-title{font-size:1.5rem}
+            .tab{padding:10px 18px;font-size:.82rem}
+        }
+    </style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="header">
+    <div style="max-width:860px;margin:0 auto;display:flex;align-items:center;justify-content:space-between">
+        <div>
+            <div class="header-title"><span style="color:#ef4444">&#9679;</span> 뉴스 트래커</div>
+            <div class="header-sub" id="lastUpdated">로딩 중...</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:.75rem;color:#64748b" id="articleCount"></span>
+            <div class="theme-toggle">
+                <button class="theme-btn" onclick="setTheme('light')">&#9728;</button>
+                <button class="theme-btn active" onclick="setTheme('dark')">&#9790;</button>
+            </div>
+            <div class="lang-toggle">
+                <button class="lang-btn active" onclick="setLang('ko')">KO</button>
+                <button class="lang-btn" onclick="setLang('en')">EN</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 탭 -->
+<div class="tabs" id="tabBar">
+    <div class="tab active" data-tab="hot" onclick="switchTab('hot')">&#128293; 핫토픽 <span class="cnt" id="hotCount">0</span></div>
+    <div class="tab" data-tab="rec" onclick="switchTab('rec')">&#11088; 추천 <span class="pro-badge">PRO</span></div>
+    <div class="tab" data-tab="comp" onclick="switchTab('comp')">&#128065; 경쟁채널 <span class="pro-badge">PRO</span></div>
+    <div class="tab" data-tab="news" onclick="switchTab('news')">&#128240; 뉴스 <span class="cnt" id="newsCount">0</span></div>
+    <div class="tab" data-tab="trends" onclick="switchTab('trends')">&#128200; 급상승 <span class="cnt" id="trendCount">0</span></div>
+    <div class="tab" data-tab="pricing" onclick="switchTab('pricing')">&#128176; <span data-i18n="tab_pricing">가격</span></div>
+    <div class="tab" data-tab="settings" onclick="switchTab('settings')">&#9881; <span data-i18n="tab_settings">설정</span></div>
+</div>
+
+<div class="content">
+
+    <!-- ========== 핫토픽 탭 ========== -->
+    <div class="panel active" id="panel-hot">
+        <div id="urgentBanner"></div>
+        <div id="hotTopics"><div class="loading"><div class="spinner"></div>뉴스를 수집하고 있어요...</div></div>
+    </div>
+
+    <!-- ========== 추천 탭 (PRO) ========== -->
+    <div class="panel" id="panel-rec">
+        <div id="recContent">
+            <div class="empty-state">
+                <div class="icon">&#128274;</div>
+                <p style="font-size:.9rem;font-weight:600;margin-bottom:8px">채널을 연결하면 맞춤 추천이 시작돼요</p>
+                <p style="font-size:.8rem">설정 탭에서 내 채널과 경쟁 채널을 등록하세요</p>
+                <button class="btn btn-primary" style="margin-top:16px" onclick="switchTab('settings')">채널 설정하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 경쟁채널 탭 (PRO) ========== -->
+    <div class="panel" id="panel-comp">
+        <div id="compContent">
+            <div class="empty-state">
+                <div class="icon">&#128065;</div>
+                <p style="font-size:.9rem;font-weight:600;margin-bottom:8px">경쟁 채널을 등록하면 모니터링이 시작돼요</p>
+                <p style="font-size:.8rem">슈카월드, 삼프로TV 등 벤치마킹 채널을 추가하세요</p>
+                <button class="btn btn-primary" style="margin-top:16px" onclick="switchTab('settings')">채널 설정하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 뉴스 탭 ========== -->
+    <div class="panel" id="panel-news">
+        <div id="newsFeed"><div class="loading"><div class="spinner"></div>뉴스 로딩 중...</div></div>
+    </div>
+
+    <!-- ========== 급상승 탭 ========== -->
+    <div class="panel" id="panel-trends">
+        <div id="googleTrends"><div class="loading"><div class="spinner"></div>트렌드 로딩 중...</div></div>
+    </div>
+
+    <!-- ========== 가격 탭 ========== -->
+    <div class="panel" id="panel-pricing">
+        <div style="text-align:center;margin-bottom:24px">
+            <h2 style="font-size:1.3rem;font-weight:800;color:#fff" data-i18n="pricing_title">딱 맞는 플랜을 선택하세요</h2>
+            <p style="font-size:.85rem;color:var(--muted);margin-top:4px" data-i18n="pricing_sub">모든 플랜 7일 무료 체험</p>
+        </div>
+
+        <div class="plan-grid">
+            <!-- 무료 -->
+            <div class="plan">
+                <div class="plan-name" data-i18n="plan_free">Free</div>
+                <div class="plan-price">₩0 <span data-i18n="price_forever">/ 영원히</span></div>
+                <ul class="plan-features">
+                    <li data-i18n="feat_hot">핫토픽 + 긴급도 알림</li>
+                    <li data-i18n="feat_news">실시간 뉴스 피드</li>
+                    <li data-i18n="feat_trends">구글 급상승 검색어</li>
+                    <li data-i18n="feat_category">카테고리 선택</li>
+                    <li class="disabled" data-i18n="feat_comp">경쟁 채널 모니터링</li>
+                    <li class="disabled" data-i18n="feat_blue">블루오션 탐지</li>
+                    <li class="disabled" data-i18n="feat_rec">맞춤 토픽 추천</li>
+                    <li class="disabled" data-i18n="feat_script">자동 대본 생성</li>
+                </ul>
+                <button class="plan-btn" style="background:#334155;color:var(--muted)" data-i18n="btn_current">현재 플랜</button>
+            </div>
+
+            <!-- 프로 -->
+            <div class="plan popular">
+                <div class="pop-badge" data-i18n="badge_popular">인기</div>
+                <div class="plan-name" style="color:#818cf8">Pro</div>
+                <div class="plan-price">₩9,900 <span data-i18n="price_month">/ 월</span></div>
+                <ul class="plan-features">
+                    <li data-i18n="feat_free_all">무료 플랜 전체 포함</li>
+                    <li data-i18n="feat_comp">경쟁 채널 모니터링</li>
+                    <li data-i18n="feat_blue">블루오션 탐지</li>
+                    <li data-i18n="feat_rec">맞춤 토픽 추천</li>
+                    <li data-i18n="feat_my_channel">내 채널 연동 분석</li>
+                    <li data-i18n="feat_browser_alert">브라우저 푸시 알림</li>
+                    <li class="disabled" data-i18n="feat_script">자동 대본 생성</li>
+                    <li class="disabled" data-i18n="feat_telegram">텔레그램 실시간 알림</li>
+                </ul>
+                <button class="plan-btn" style="background:#4f46e5;color:#fff" onclick="openPayModal('pro')" data-i18n="btn_start_trial">7일 무료 체험</button>
+            </div>
+
+            <!-- 맥스 -->
+            <div class="plan">
+                <div class="plan-name" style="color:#f59e0b">Max</div>
+                <div class="plan-price">₩29,900 <span data-i18n="price_month">/ 월</span></div>
+                <ul class="plan-features">
+                    <li data-i18n="feat_pro_all">프로 플랜 전체 포함</li>
+                    <li data-i18n="feat_script">자동 대본 초안 생성</li>
+                    <li data-i18n="feat_telegram">텔레그램 실시간 알림</li>
+                    <li data-i18n="feat_title_thumb">제목/썸네일 자동 생성</li>
+                    <li data-i18n="feat_priority">우선 지원</li>
+                </ul>
+                <button class="plan-btn" style="background:#d97706;color:#fff" onclick="openPayModal('max')" data-i18n="btn_start_trial">7일 무료 체험</button>
+            </div>
+        </div>
+
+        <!-- FAQ -->
+        <div class="card" style="margin-top:24px">
+            <h3 style="font-weight:700;margin-bottom:12px" data-i18n="faq_title">자주 묻는 질문</h3>
+            <div style="font-size:.82rem;line-height:1.7">
+                <p style="color:#fff;font-weight:600;margin-top:10px" data-i18n="faq_q1">Q. 환불이 되나요?</p>
+                <p style="color:var(--muted)" data-i18n="faq_a1">A. 결제 후 7일 이내 전액 환불 가능합니다.</p>
+                <p style="color:#fff;font-weight:600;margin-top:10px" data-i18n="faq_q2">Q. 사업자가 아닌데 이용할 수 있나요?</p>
+                <p style="color:var(--muted)" data-i18n="faq_a2">A. 네, 개인 유튜버/크리에이터 누구나 이용 가능합니다.</p>
+                <p style="color:#fff;font-weight:600;margin-top:10px" data-i18n="faq_q3">Q. 해외에서도 결제 가능한가요?</p>
+                <p style="color:var(--muted)" data-i18n="faq_a3">A. PayPal로 해외 결제가 가능합니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 설정 탭 ========== -->
+    <div class="panel" id="panel-settings">
+
+        <!-- 카테고리 선택 -->
+        <div class="card">
+            <h3 style="font-weight:700;margin-bottom:12px">&#127912; 카테고리</h3>
+            <p style="font-size:.78rem;color:var(--muted);margin-bottom:12px">내 채널에 맞는 카테고리를 선택하세요. 해당 분야의 뉴스만 수집합니다.</p>
+            <div class="cat-grid" id="catGrid">
+                <div class="cat-btn active" data-cat="economy" onclick="selectCategory('economy')"><span class="cat-icon">&#128181;</span>경제/시사</div>
+                <div class="cat-btn" data-cat="politics" onclick="selectCategory('politics')"><span class="cat-icon">&#127963;</span>정치</div>
+                <div class="cat-btn" data-cat="tech" onclick="selectCategory('tech')"><span class="cat-icon">&#128187;</span>IT/테크</div>
+                <div class="cat-btn" data-cat="world" onclick="selectCategory('world')"><span class="cat-icon">&#127758;</span>국제</div>
+                <div class="cat-btn" data-cat="realestate" onclick="selectCategory('realestate')"><span class="cat-icon">&#127968;</span>부동산</div>
+                <div class="cat-btn" data-cat="entertainment" onclick="selectCategory('entertainment')"><span class="cat-icon">&#127908;</span>연예</div>
+                <div class="cat-btn" data-cat="sports" onclick="selectCategory('sports')"><span class="cat-icon">&#9917;</span>스포츠</div>
+                <div class="cat-btn" data-cat="health" onclick="selectCategory('health')"><span class="cat-icon">&#129657;</span>건강/의학</div>
+                <div class="cat-btn" data-cat="religion" onclick="selectCategory('religion')"><span class="cat-icon">&#128591;</span>종교</div>
+            </div>
+        </div>
+
+        <!-- 내 채널 -->
+        <div class="card">
+            <h3 style="font-weight:700;margin-bottom:4px">&#127909; 내 채널 <span class="pro-badge" style="font-size:.6rem">PRO</span></h3>
+            <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">내 채널을 등록하면 이미 다룬 주제를 제외하고 추천해줘요</p>
+            <div id="myChannelDisplay"></div>
+            <div class="input-row">
+                <input type="text" id="myChannelInput" placeholder="채널 URL 또는 ID (예: UCfBW...)">
+                <button class="btn btn-primary" onclick="setMyChannel()">등록</button>
+            </div>
+        </div>
+
+        <!-- 경쟁 채널 -->
+        <div class="card">
+            <h3 style="font-weight:700;margin-bottom:4px">&#128065; 경쟁 채널 <span class="pro-badge" style="font-size:.6rem">PRO</span></h3>
+            <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">경쟁 채널을 등록하면 그들이 안 다룬 블루오션 주제를 찾아줘요</p>
+            <div id="competitorList"></div>
+            <div class="input-row">
+                <input type="text" id="compChannelInput" placeholder="경쟁 채널 URL 또는 ID">
+                <button class="btn btn-primary" onclick="addCompetitor()">추가</button>
+            </div>
+        </div>
+
+        <!-- 브라우저 알림 -->
+        <div class="card">
+            <h3 style="font-weight:700;margin-bottom:4px">&#128276; 브라우저 알림</h3>
+            <p style="font-size:.75rem;color:var(--muted);margin-bottom:12px">NOW 긴급 토픽이 뜨면 브라우저 알림을 보내줘요</p>
+            <button class="btn btn-outline" id="notifBtn" onclick="requestNotification()">알림 허용하기</button>
+        </div>
+
+        <!-- 가이드 -->
+        <div class="tip-card">
+            <h3>&#128161; 플랜 안내</h3>
+            <ul>
+                <li><b>무료</b> — 핫토픽, 최신뉴스, 트렌드, 카테고리 선택</li>
+                <li><b>프로</b> — + 경쟁채널 모니터링, 블루오션 탐지, 맞춤 추천</li>
+                <li><b>맥스</b> — + 자동 대본 초안, 텔레그램 알림, 제목/썸네일</li>
+            </ul>
+        </div>
+        <div class="tip-card">
+            <h3>&#128337; 긴급도 기준</h3>
+            <ul>
+                <li><b style="color:#ef4444">NOW</b> = 3시간 이내. 지금 바로 대본 시작</li>
+                <li><b style="color:#f97316">HOT</b> = 6시간 이내. 오늘 안에 업로드</li>
+                <li><b style="color:#eab308">WARM</b> = 12시간 이내. 내일까지 괜찮음</li>
+                <li><span class="badge-BLUE" style="padding:2px 6px;border-radius:4px;font-size:.65rem">BLUE</span> = 경쟁채널이 안 다룬 블루오션!</li>
+            </ul>
+        </div>
+    </div>
+
+</div>
+
+<!-- FAB -->
+<button class="fab" id="refreshFab" onclick="refreshAll()" title="새로고침">&#x21BB;</button>
+
+<!-- 결제 모달 -->
+<div class="modal-overlay" id="payModal" onclick="if(event.target===this)closePayModal()">
+    <div class="modal">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h2 id="payModalTitle" style="margin:0">Pro 플랜 결제</h2>
+            <button onclick="closePayModal()" style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer">&#10005;</button>
+        </div>
+
+        <div style="background:#0f172a;border-radius:10px;padding:12px;margin-bottom:16px;text-align:center">
+            <span style="font-size:1.5rem;font-weight:800;color:#fff" id="payModalPrice">₩9,900</span>
+            <span style="font-size:.8rem;color:var(--muted)" data-i18n="price_month">/ 월</span>
+        </div>
+
+        <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px" data-i18n="pay_select">결제 방법을 선택하세요</p>
+
+        <!-- 계좌이체 -->
+        <div class="pay-method" onclick="showPayDetail('bank')">
+            <div class="icon">&#127974;</div>
+            <div>
+                <div class="label" data-i18n="pay_bank">계좌이체</div>
+                <div class="desc" data-i18n="pay_bank_desc">입금 후 확인까지 최대 1시간</div>
+            </div>
+        </div>
+
+        <!-- 토스 송금 — 토스아이디 설정 후 표시 -->
+        <div class="pay-method" id="tossMethod" onclick="showPayDetail('toss')" style="display:none">
+            <div class="icon">&#128241;</div>
+            <div>
+                <div class="label" data-i18n="pay_toss">토스 송금</div>
+                <div class="desc" data-i18n="pay_toss_desc">토스 앱으로 간편 송금</div>
+            </div>
+        </div>
+
+        <!-- PayPal (해외) — 설정 후 표시 -->
+        <div class="pay-method" id="paypalMethod" onclick="showPayDetail('paypal')" style="display:none">
+            <div class="icon">&#127760;</div>
+            <div>
+                <div class="label">PayPal</div>
+                <div class="desc" data-i18n="pay_paypal_desc">International payment</div>
+            </div>
+        </div>
+
+        <!-- 상세 -->
+        <div id="payDetail" style="display:none"></div>
+    </div>
+</div>
+
+<script>
+// ══════════════════════════════════════
+//  상태
+// ══════════════════════════════════════
+let data = {};
+let channels = { my_channel: null, competitors: [] };
+let currentCategory = localStorage.getItem('nt_category') || 'economy';
+
+// ══════════════════════════════════════
+//  유틸
+// ══════════════════════════════════════
+function timeAgo(d){const h=(Date.now()-new Date(d).getTime())/36e5;return h<1?Math.max(1,Math.round(h*60))+'분 전':h<24?Math.round(h)+'시간 전':Math.round(h/24)+'일 전'}
+
+async function api(path,opts){
+    const r=await fetch(path,opts);
+    return r.json();
+}
+
+// ══════════════════════════════════════
+//  데이터 로드
+// ══════════════════════════════════════
+async function loadData(){
+    data = await api(`/api/data?category=${currentCategory}`);
+    channels = await api('/api/channels');
+}
+
+// ══════════════════════════════════════
+//  탭 전환
+// ══════════════════════════════════════
+function switchTab(id){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.querySelector(`.tab[data-tab="${id}"]`).classList.add('active');
+    document.getElementById('panel-'+id).classList.add('active');
+}
+
+function toggleArticles(i){
+    const el=document.getElementById('arts-'+i);
+    if(el)el.style.display=el.style.display==='none'?'block':'none';
+}
+
+// ══════════════════════════════════════
+//  렌더: 핫토픽
+// ══════════════════════════════════════
+function renderHot(){
+    const topics=data.topics||[];
+    const el=document.getElementById('hotTopics');
+
+    // 긴급 배너
+    const now=topics.filter(t=>t.urgency==='NOW');
+    const banner=document.getElementById('urgentBanner');
+    if(now.length){
+        banner.innerHTML=`<div class="urgent"><div style="font-size:.75rem;font-weight:800;color:#fca5a5;letter-spacing:1px">&#9888; 지금 터지는 주제</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${now.slice(0,8).map(t=>`<span style="background:#dc2626;color:#fff;padding:4px 10px;border-radius:99px;font-size:.8rem;font-weight:700">${t.keyword} (${t.score})</span>`).join('')}</div></div>`;
+        sendNotification(now);
+    } else { banner.innerHTML=''; }
+
+    if(!topics.length){el.innerHTML='<div class="loading">핫 토픽이 없습니다.</div>';return;}
+
+    el.innerHTML=topics.slice(0,30).map((t,i)=>`
+        <div class="card" onclick="toggleArticles(${i})" style="cursor:pointer">
+            <div style="display:flex;align-items:center;gap:10px">
+                <span class="badge badge-${t.urgency}">${t.urgency}</span>
+                ${t.blue_ocean?'<span class="badge badge-BLUE">BLUE</span>':''}
+                <span style="font-size:1rem;font-weight:700;color:#fff;flex:1">${t.keyword}</span>
+                ${t.already_covered?'<span style="font-size:.65rem;color:#64748b">&#10003; 다룸</span>':''}
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;font-size:.75rem">
+                <span style="color:#818cf8;font-weight:600">${t.score}개 소스</span>
+                <span style="color:var(--muted)">${t.age_hours<1?Math.round(t.age_hours*60)+'분 전':Math.round(t.age_hours)+'시간 전'}</span>
+                <span style="color:var(--muted)">${t.article_count}건</span>
+                ${t.rec_score>0?`<span style="color:#a78bfa">추천 ${t.rec_score}점</span>`:''}
+            </div>
+            <div class="score-bar"><div class="score-fill" style="width:${Math.min(t.score*20,100)}%"></div></div>
+            <div class="source-tags">${t.sources.map(s=>`<span class="source-tag">${s}</span>`).join('')}</div>
+            <div class="articles-list" id="arts-${i}" style="display:none">
+                ${(t.articles||[]).slice(0,5).map(a=>`<div class="article-item"><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a><div style="font-size:.7rem;color:var(--dim);margin-top:2px">${a.source} &middot; ${timeAgo(a.pubDate)}</div></div>`).join('')}
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('hotCount').textContent=topics.length;
+}
+
+// ══════════════════════════════════════
+//  렌더: 추천 (PRO)
+// ══════════════════════════════════════
+function renderRec(){
+    const recs=data.recommendations||[];
+    const el=document.getElementById('recContent');
+
+    if(!channels.my_channel && !channels.competitors?.length){
+        el.innerHTML=`<div class="empty-state"><div class="icon">&#128274;</div><p style="font-size:.9rem;font-weight:600;margin-bottom:8px">채널을 연결하면 맞춤 추천이 시작돼요</p><p style="font-size:.8rem">설정 탭에서 내 채널과 경쟁 채널을 등록하세요</p><button class="btn btn-primary" style="margin-top:16px" onclick="switchTab('settings')">채널 설정하기</button></div>`;
+        return;
+    }
+
+    if(!recs.length){
+        el.innerHTML='<div class="loading">추천 토픽을 분석 중...</div>';
+        return;
+    }
+
+    el.innerHTML=`
+        <div style="font-size:.8rem;color:var(--muted);margin-bottom:12px">&#11088; 내 채널에 맞는 토픽을 점수순으로 추천합니다</div>
+        ${recs.map((t,i)=>`
+            <div class="rec-card">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                    <span style="font-size:1.2rem;font-weight:800;color:#a5b4fc">${i+1}</span>
+                    <span class="badge badge-${t.urgency}">${t.urgency}</span>
+                    ${t.blue_ocean?'<span class="badge badge-BLUE">BLUE</span>':''}
+                    <span style="font-size:1rem;font-weight:700;color:#fff;flex:1">${t.keyword}</span>
+                    <span class="rec-score">${t.rec_score}점</span>
+                </div>
+                <div style="display:flex;gap:12px;font-size:.75rem">
+                    <span style="color:#818cf8">${t.score}개 소스</span>
+                    <span style="color:var(--muted)">${t.article_count}건 보도</span>
+                    ${t.blue_ocean?'<span style="color:#06b6d4">경쟁채널 미진출</span>':''}
+                    ${t.already_covered?'<span style="color:var(--dim)">이미 다룸</span>':''}
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+// ══════════════════════════════════════
+//  렌더: 경쟁채널 (PRO)
+// ══════════════════════════════════════
+function renderComp(){
+    const vids=data.competitors||[];
+    const el=document.getElementById('compContent');
+
+    if(!channels.competitors?.length){
+        el.innerHTML=`<div class="empty-state"><div class="icon">&#128065;</div><p style="font-size:.9rem;font-weight:600;margin-bottom:8px">경쟁 채널을 등록하면 모니터링이 시작돼요</p><button class="btn btn-primary" style="margin-top:16px" onclick="switchTab('settings')">채널 설정하기</button></div>`;
+        return;
+    }
+
+    if(!vids.length){
+        el.innerHTML='<div class="loading">경쟁채널 데이터를 수집 중...</div>';
+        return;
+    }
+
+    el.innerHTML=`
+        <div style="font-size:.8rem;color:var(--muted);margin-bottom:12px">&#128065; 경쟁 채널의 최근 업로드 (${vids.length}편)</div>
+        <div class="card" style="padding:10px 14px">
+            ${vids.slice(0,30).map(v=>`
+                <div class="comp-video">
+                    <div class="comp-thumb">
+                        ${v.videoId?`<img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg" alt="" loading="lazy">`:''}
+                    </div>
+                    <div style="flex:1;min-width:0">
+                        <a href="${v.link}" target="_blank" rel="noopener" style="font-size:.82rem;font-weight:600;color:#fff;text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.title}</a>
+                        <div style="font-size:.7rem;color:var(--muted);margin-top:4px">
+                            <span style="color:#818cf8">${v.channel}</span> &middot; ${timeAgo(v.pubDate)}
+                        </div>
+                        <div class="source-tags" style="margin-top:4px">
+                            ${(v.keywords||[]).slice(0,5).map(k=>`<span class="source-tag">${k}</span>`).join('')}
+                        </div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+// ══════════════════════════════════════
+//  렌더: 뉴스
+// ══════════════════════════════════════
+function renderNews(){
+    const arts=data.articles||[];
+    const el=document.getElementById('newsFeed');
+    if(!arts.length){el.innerHTML='<div class="loading">뉴스가 없습니다.</div>';return;}
+    el.innerHTML=arts.slice(0,60).map(a=>`
+        <div class="news-item">
+            <a class="news-title" href="${a.link}" target="_blank" rel="noopener">${a.title}</a>
+            <div style="display:flex;gap:8px;margin-top:6px;font-size:.7rem;color:var(--dim)">
+                <span>${a.source}</span><span>${timeAgo(a.pubDate)}</span>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('newsCount').textContent=arts.length;
+}
+
+// ══════════════════════════════════════
+//  렌더: 트렌드
+// ══════════════════════════════════════
+function renderTrends(){
+    const trends=data.trends||[];
+    const el=document.getElementById('googleTrends');
+    if(!trends.length){el.innerHTML='<div class="loading">트렌드 없음</div>';return;}
+    el.innerHTML=`<div class="card" style="padding:0;overflow:hidden">${trends.map((t,i)=>`
+        <div class="trend-item">
+            <span class="trend-rank ${i<3?'top3':''}">${i+1}</span>
+            <span style="flex:1;font-size:.85rem;font-weight:600"><a href="${t.link}" target="_blank" rel="noopener" style="color:#fff;text-decoration:none">${t.keyword}</a></span>
+            ${t.traffic?`<span class="trend-traffic">${t.traffic}</span>`:''}
+        </div>
+    `).join('')}</div>`;
+    document.getElementById('trendCount').textContent=trends.length;
+}
+
+// ══════════════════════════════════════
+//  렌더: 설정
+// ══════════════════════════════════════
+function renderSettings(){
+    // 내 채널
+    const myEl=document.getElementById('myChannelDisplay');
+    if(channels.my_channel){
+        myEl.innerHTML=`<div class="channel-item"><div><span style="font-size:.85rem;font-weight:600;color:#fff">${channels.my_channel.name||channels.my_channel.id}</span><span style="font-size:.7rem;color:var(--dim);margin-left:8px">${channels.my_channel.id}</span></div><button class="btn btn-danger" onclick="removeMyChannel()">삭제</button></div>`;
+    } else { myEl.innerHTML=''; }
+
+    // 경쟁 채널
+    const compEl=document.getElementById('competitorList');
+    if(channels.competitors?.length){
+        compEl.innerHTML=channels.competitors.map(c=>`
+            <div class="channel-item">
+                <div><span style="font-size:.85rem;font-weight:600;color:#fff">${c.name||c.id}</span><span style="font-size:.7rem;color:var(--dim);margin-left:8px">${c.id}</span></div>
+                <button class="btn btn-danger" onclick="removeCompetitor('${c.id}')">삭제</button>
+            </div>
+        `).join('');
+    } else { compEl.innerHTML=''; }
+
+    // 카테고리
+    document.querySelectorAll('.cat-btn').forEach(b=>{
+        b.classList.toggle('active',b.dataset.cat===currentCategory);
+    });
+
+    // 알림
+    const nb=document.getElementById('notifBtn');
+    if('Notification' in window && Notification.permission==='granted'){
+        nb.textContent='알림 허용됨 ✓';
+        nb.style.borderColor='#4ade80';
+        nb.style.color='#4ade80';
+    }
+}
+
+// ══════════════════════════════════════
+//  채널 관리 API
+// ══════════════════════════════════════
+async function setMyChannel(){
+    const input=document.getElementById('myChannelInput');
+    const val=input.value.trim();
+    if(!val)return;
+    const res=await api('/api/channels/my',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:val})});
+    channels=res.channels;
+    input.value='';
+    renderSettings();
+    setTimeout(refreshAll,2000);
+}
+
+async function removeMyChannel(){
+    const res=await api('/api/channels/my',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:''})});
+    channels=res.channels;
+    renderSettings();
+}
+
+async function addCompetitor(){
+    const input=document.getElementById('compChannelInput');
+    const val=input.value.trim();
+    if(!val)return;
+    const res=await api('/api/channels/competitor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:val})});
+    channels=res.channels;
+    input.value='';
+    renderSettings();
+    setTimeout(refreshAll,2000);
+}
+
+async function removeCompetitor(id){
+    const res=await api('/api/channels/competitor/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+    channels=res.channels;
+    renderSettings();
+}
+
+// ══════════════════════════════════════
+//  카테고리
+// ══════════════════════════════════════
+async function selectCategory(cat){
+    currentCategory=cat;
+    localStorage.setItem('nt_category',cat);
+    document.querySelectorAll('.cat-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat));
+    // 바로 해당 카테고리 데이터 요청 — 서버에 미리 캐시되어 있음
+    await refreshAll();
+}
+
+// ══════════════════════════════════════
+//  브라우저 알림
+// ══════════════════════════════════════
+let lastNotified = new Set();
+
+function requestNotification(){
+    if(!('Notification' in window)){alert('이 브라우저는 알림을 지원하지 않아요');return;}
+    Notification.requestPermission().then(p=>{
+        if(p==='granted'){
+            new Notification('뉴스 트래커',{body:'알림이 활성화되었어요! NOW 토픽이 뜨면 알려드릴게요.',icon:'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>'});
+        }
+        renderSettings();
+    });
+}
+
+function sendNotification(nowTopics){
+    if(!('Notification' in window)||Notification.permission!=='granted')return;
+    for(const t of nowTopics){
+        if(lastNotified.has(t.keyword))continue;
+        lastNotified.add(t.keyword);
+        new Notification(`🔥 NOW: ${t.keyword}`,{
+            body:`${t.score}개 소스에서 동시 보도! 지금 영상 만들면 선점 가능`,
+            icon:'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>',
+            tag:t.keyword,
+        });
+    }
+}
+
+// ══════════════════════════════════════
+//  전체 렌더
+// ══════════════════════════════════════
+function renderAll(){
+    renderHot();
+    renderRec();
+    renderComp();
+    renderNews();
+    renderTrends();
+    renderSettings();
+    document.getElementById('lastUpdated').textContent=data.last_updated?`마지막 갱신: ${new Date(data.last_updated).toLocaleString('ko-KR')}`:'갱신 중...';
+    document.getElementById('articleCount').textContent=`${(data.articles||[]).length}건`;
+}
+
+// ══════════════════════════════════════
+//  새로고침
+// ══════════════════════════════════════
+async function refreshAll(){
+    const fab=document.getElementById('refreshFab');
+    fab.classList.add('spinning');
+    fab.disabled=true;
+    try{
+        await loadData();
+        renderAll();
+    }catch(e){
+        console.error(e);
+        document.getElementById('hotTopics').innerHTML='<div class="error-box">서버에 연결할 수 없습니다. 뉴스트래커.bat을 먼저 실행해주세요.</div>';
+    }
+    fab.classList.remove('spinning');
+    fab.disabled=false;
+}
+
+// ══════════════════════════════════════
+//  결제
+// ══════════════════════════════════════
+let selectedPlan = 'pro';
+const PLAN_INFO = {
+    pro:  { name:'Pro',  priceKR:'₩9,900',  priceUSD:'$7.99' },
+    max:  { name:'Max',  priceKR:'₩29,900', priceUSD:'$24.99' },
+};
+// ★ 여기에 본인 정보를 입력하세요
+const PAYMENT_CONFIG = {
+    bank: { name:'농협은행', account:'302-0943-7289-71', holder:'류태경' },
+    toss_id: '',
+    paypal: '',
+    email: 'whdk5010@naver.com',
+};
+
+function openPayModal(plan){
+    selectedPlan = plan;
+    const info = PLAN_INFO[plan];
+    const isEN = currentLang === 'en';
+    document.getElementById('payModalTitle').textContent = `${info.name} ${isEN?'Plan Payment':'플랜 결제'}`;
+    document.getElementById('payModalPrice').textContent = isEN ? info.priceUSD : info.priceKR;
+    document.getElementById('payDetail').style.display = 'none';
+    // 토스/PayPal 있으면 표시
+    const ts = document.getElementById('tossMethod');
+    if(ts) ts.style.display = PAYMENT_CONFIG.toss_id ? 'flex' : 'none';
+    const pp = document.getElementById('paypalMethod');
+    if(pp) pp.style.display = PAYMENT_CONFIG.paypal ? 'flex' : 'none';
+    document.getElementById('payModal').classList.add('show');
+}
+
+function closePayModal(){
+    document.getElementById('payModal').classList.remove('show');
+}
+
+function showPayDetail(method){
+    const info = PLAN_INFO[selectedPlan];
+    const el = document.getElementById('payDetail');
+    const isEN = currentLang === 'en';
+    el.style.display = 'block';
+
+    if(method === 'bank'){
+        el.innerHTML = `<div class="pay-detail">
+            <p style="font-weight:700;margin-bottom:8px">${isEN?'Bank Transfer':'계좌이체 안내'}</p>
+            <p>${isEN?'Bank':'은행'}: <b>${PAYMENT_CONFIG.bank.name}</b></p>
+            <p>${isEN?'Account':'계좌번호'}: <b>${PAYMENT_CONFIG.bank.account}</b> <button class="copy-btn" onclick="copyText('${PAYMENT_CONFIG.bank.account}')">${isEN?'Copy':'복사'}</button></p>
+            <p>${isEN?'Name':'예금주'}: <b>${PAYMENT_CONFIG.bank.holder}</b></p>
+            <p>${isEN?'Amount':'금액'}: <b>${isEN?info.priceUSD:info.priceKR}</b></p>
+            <div style="margin-top:12px;text-align:center">
+                <a href="https://forms.gle/YOUR_FORM_ID" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-block;text-decoration:none;padding:12px 24px;width:100%">
+                    ${isEN?'Submit payment confirmation':'입금 확인 폼 작성하기'}
+                </a>
+                <p style="font-size:.72rem;color:var(--muted);margin-top:8px">${isEN?'Activation within 1 hour after confirmation':'확인 후 1시간 내 활성화됩니다'}</p>
+            </div>
+        </div>`;
+    } else if(method === 'toss'){
+        el.innerHTML = `<div class="pay-detail">
+            <p style="font-weight:700;margin-bottom:8px">${isEN?'Toss Transfer':'토스 송금'}</p>
+            <p>${isEN?'Toss ID':'토스 아이디'}: <b>${PAYMENT_CONFIG.toss_id}</b> <button class="copy-btn" onclick="copyText('${PAYMENT_CONFIG.toss_id}')">${isEN?'Copy':'복사'}</button></p>
+            <p>${isEN?'Amount':'금액'}: <b>${info.priceKR}</b></p>
+            <div style="margin-top:12px;text-align:center">
+                <a href="supertoss://send?amount=${selectedPlan==='pro'?9900:29900}&bank=toss&accountNo=${PAYMENT_CONFIG.toss_id}" class="btn btn-primary" style="display:inline-block;text-decoration:none;padding:12px 24px">${isEN?'Open Toss App':'토스 앱으로 송금하기'}</a>
+            </div>
+            <div style="margin-top:12px;text-align:center">
+                <a href="https://forms.gle/YOUR_FORM_ID" target="_blank" rel="noopener" class="btn btn-outline" style="display:inline-block;text-decoration:none;padding:10px 24px;width:100%;margin-top:8px">
+                    ${isEN?'Submit payment confirmation':'입금 확인 폼 작성하기'}
+                </a>
+            </div>
+        </div>`;
+    } else if(method === 'paypal'){
+        el.innerHTML = `<div class="pay-detail">
+            <p style="font-weight:700;margin-bottom:8px">PayPal Payment</p>
+            <p>Amount: <b>${info.priceUSD}</b> /month</p>
+            <div style="margin-top:12px;text-align:center">
+                <a href="https://paypal.me/${PAYMENT_CONFIG.paypal}/${selectedPlan==='pro'?'7.99':'24.99'}USD" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-block;text-decoration:none;padding:12px 24px;background:#0070ba">Pay with PayPal</a>
+            </div>
+            <div style="margin-top:12px;text-align:center">
+                <a href="https://forms.gle/YOUR_FORM_ID" target="_blank" rel="noopener" class="btn btn-outline" style="display:inline-block;text-decoration:none;padding:10px 24px;width:100%">
+                    Submit payment confirmation
+                </a>
+                <p style="font-size:.72rem;color:var(--muted);margin-top:8px">Activation within 1 hour</p>
+            </div>
+        </div>`;
+    }
+}
+
+function copyText(text){
+    navigator.clipboard.writeText(text).then(()=>{
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(()=>btn.textContent=orig, 1500);
+    });
+}
+
+// ══════════════════════════════════════
+//  다국어 (i18n)
+// ══════════════════════════════════════
+// ══════════════════════════════════════
+//  테마 (라이트/다크)
+// ══════════════════════════════════════
+let currentTheme = localStorage.getItem('nt_theme') || 'dark';
+
+function setTheme(theme){
+    currentTheme = theme;
+    localStorage.setItem('nt_theme', theme);
+    document.body.classList.toggle('light', theme === 'light');
+    document.querySelectorAll('.theme-btn').forEach(b => {
+        const isLight = b.textContent.trim() === '☀';
+        b.classList.toggle('active', (theme==='light' && isLight) || (theme==='dark' && !isLight));
+    });
+}
+
+let currentLang = localStorage.getItem('nt_lang') || 'ko';
+
+const I18N = {
+    // 탭
+    tab_pricing:    { ko:'가격', en:'Pricing' },
+    tab_settings:   { ko:'설정', en:'Settings' },
+    // 가격 페이지
+    pricing_title:  { ko:'딱 맞는 플랜을 선택하세요', en:'Choose your plan' },
+    pricing_sub:    { ko:'모든 플랜 7일 무료 체험', en:'7-day free trial on all plans' },
+    plan_free:      { ko:'Free', en:'Free' },
+    price_forever:  { ko:'/ 영원히', en:'/ forever' },
+    price_month:    { ko:'/ 월', en:'/ month' },
+    badge_popular:  { ko:'인기', en:'POPULAR' },
+    feat_hot:       { ko:'핫토픽 + 긴급도 알림', en:'Hot topics + urgency alerts' },
+    feat_news:      { ko:'실시간 뉴스 피드', en:'Real-time news feed' },
+    feat_trends:    { ko:'구글 급상승 검색어', en:'Google trending searches' },
+    feat_category:  { ko:'카테고리 선택', en:'Category selection' },
+    feat_comp:      { ko:'경쟁 채널 모니터링', en:'Competitor monitoring' },
+    feat_blue:      { ko:'블루오션 탐지', en:'Blue ocean detection' },
+    feat_rec:       { ko:'맞춤 토픽 추천', en:'Personalized recommendations' },
+    feat_script:    { ko:'자동 대본 생성', en:'Auto script generation' },
+    feat_free_all:  { ko:'무료 플랜 전체 포함', en:'Everything in Free' },
+    feat_my_channel:{ ko:'내 채널 연동 분석', en:'Channel analytics' },
+    feat_browser_alert:{ ko:'브라우저 푸시 알림', en:'Browser push notifications' },
+    feat_telegram:  { ko:'텔레그램 실시간 알림', en:'Telegram real-time alerts' },
+    feat_pro_all:   { ko:'프로 플랜 전체 포함', en:'Everything in Pro' },
+    feat_title_thumb:{ ko:'제목/썸네일 자동 생성', en:'Auto title & thumbnail' },
+    feat_priority:  { ko:'우선 지원', en:'Priority support' },
+    btn_current:    { ko:'현재 플랜', en:'Current plan' },
+    btn_start_trial:{ ko:'7일 무료 체험', en:'Start free trial' },
+    // 결제
+    pay_select:     { ko:'결제 방법을 선택하세요', en:'Select payment method' },
+    pay_bank:       { ko:'계좌이체', en:'Bank Transfer' },
+    pay_bank_desc:  { ko:'입금 후 확인까지 최대 1시간', en:'Up to 1 hour for confirmation' },
+    pay_toss:       { ko:'토스 송금', en:'Toss Transfer' },
+    pay_toss_desc:  { ko:'토스 앱으로 간편 송금', en:'Quick transfer via Toss app' },
+    pay_paypal_desc:{ ko:'해외 결제', en:'International payment' },
+    // FAQ
+    faq_title:      { ko:'자주 묻는 질문', en:'FAQ' },
+    faq_q1:         { ko:'Q. 환불이 되나요?', en:'Q. Can I get a refund?' },
+    faq_a1:         { ko:'A. 결제 후 7일 이내 전액 환불 가능합니다.', en:'A. Full refund within 7 days of payment.' },
+    faq_q2:         { ko:'Q. 사업자가 아닌데 이용할 수 있나요?', en:'Q. Can individuals use this?' },
+    faq_a2:         { ko:'A. 네, 개인 유튜버/크리에이터 누구나 이용 가능합니다.', en:'A. Yes, any individual creator or YouTuber can use it.' },
+    faq_q3:         { ko:'Q. 해외에서도 결제 가능한가요?', en:'Q. Can I pay from outside Korea?' },
+    faq_a3:         { ko:'A. PayPal로 해외 결제가 가능합니다.', en:'A. Yes, international payments via PayPal.' },
+};
+
+function setLang(lang){
+    currentLang = lang;
+    localStorage.setItem('nt_lang', lang);
+    document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active', b.textContent.trim()===lang.toUpperCase()));
+    document.documentElement.lang = lang;
+
+    // i18n 텍스트 치환
+    document.querySelectorAll('[data-i18n]').forEach(el=>{
+        const key = el.dataset.i18n;
+        if(I18N[key] && I18N[key][lang]) el.textContent = I18N[key][lang];
+    });
+
+    // 가격 표시 전환
+    if(lang==='en'){
+        document.querySelectorAll('.plan-price').forEach((el,i)=>{
+            if(i===0) el.innerHTML='$0 <span data-i18n="price_forever">/ forever</span>';
+            if(i===1) el.innerHTML='$7.99 <span data-i18n="price_month">/ month</span>';
+            if(i===2) el.innerHTML='$24.99 <span data-i18n="price_month">/ month</span>';
+        });
+    } else {
+        document.querySelectorAll('.plan-price').forEach((el,i)=>{
+            if(i===0) el.innerHTML='₩0 <span data-i18n="price_forever">/ 영원히</span>';
+            if(i===1) el.innerHTML='₩9,900 <span data-i18n="price_month">/ 월</span>';
+            if(i===2) el.innerHTML='₩29,900 <span data-i18n="price_month">/ 월</span>';
+        });
+    }
+}
+
+// ══════════════════════════════════════
+//  초기화
+// ══════════════════════════════════════
+(async function(){
+    if(currentTheme==='light') setTheme('light');
+    if(currentLang!=='ko') setLang(currentLang);
+    await refreshAll();
+    setInterval(refreshAll, 2*60*1000);
+})();
+</script>
+</body>
+</html>

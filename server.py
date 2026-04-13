@@ -1,0 +1,714 @@
+"""경제 뉴스 트래커 서버 — 무료/프로/맥스 플랜."""
+
+import json
+import os
+import threading
+import re
+from datetime import datetime, timezone, timedelta
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from urllib.request import urlopen, Request
+from urllib.parse import parse_qs, urlparse
+from xml.etree import ElementTree as ET
+from email.utils import parsedate_to_datetime
+
+KST = timezone(timedelta(hours=9))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHANNELS_FILE = os.path.join(BASE_DIR, "channels.json")
+
+# ──────────────────────────────────────────────
+#  설정
+# ──────────────────────────────────────────────
+
+CATEGORY_FEEDS = {
+    "economy": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 경제",     "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 경제검색", "https://news.google.com/rss/search?q=%EA%B2%BD%EC%A0%9C&hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 증시",     "https://news.google.com/rss/search?q=%EC%A3%BC%EC%8B%9D+%EC%A6%9D%EC%8B%9C&hl=ko&gl=KR&ceid=KR:ko"),
+        ("한국경제",      "https://www.hankyung.com/feed/all-news"),
+        ("매일경제",      "https://www.mk.co.kr/rss/30000001/"),
+        ("연합뉴스",      "https://www.yonhapnewstv.co.kr/category/news/economy/feed/"),
+    ],
+    "politics": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 정치",     "https://news.google.com/rss/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFZ4ZERBU0FtdHZLQUFQAQ?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 정치검색", "https://news.google.com/rss/search?q=%EC%A0%95%EC%B9%98+%EA%B5%AD%ED%9A%8C&hl=ko&gl=KR&ceid=KR:ko"),
+        ("한국경제",      "https://www.hankyung.com/feed/all-news"),
+        ("연합뉴스",      "https://www.yonhapnewstv.co.kr/category/news/politics/feed/"),
+    ],
+    "tech": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 기술",     "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 AI검색",   "https://news.google.com/rss/search?q=AI+%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5&hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 IT검색",   "https://news.google.com/rss/search?q=IT+%ED%85%8C%ED%81%AC&hl=ko&gl=KR&ceid=KR:ko"),
+        ("한국경제",      "https://www.hankyung.com/feed/all-news"),
+        ("매일경제",      "https://www.mk.co.kr/rss/30000001/"),
+    ],
+    "world": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 세계",     "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx1YlY4U0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 국제검색", "https://news.google.com/rss/search?q=%EA%B5%AD%EC%A0%9C+%EC%A0%84%EC%9F%81+%EC%99%B8%EA%B5%90&hl=ko&gl=KR&ceid=KR:ko"),
+        ("연합뉴스",      "https://www.yonhapnewstv.co.kr/category/news/international/feed/"),
+    ],
+    "realestate": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 부동산",   "https://news.google.com/rss/search?q=%EB%B6%80%EB%8F%99%EC%82%B0+%EC%95%84%ED%8C%8C%ED%8A%B8+%EC%A0%84%EC%84%B8&hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 청약검색", "https://news.google.com/rss/search?q=%EC%B2%AD%EC%95%BD+%EB%B6%84%EC%96%91+%EC%9E%AC%EA%B1%B4%EC%B6%95&hl=ko&gl=KR&ceid=KR:ko"),
+        ("한국경제",      "https://www.hankyung.com/feed/all-news"),
+        ("매일경제",      "https://www.mk.co.kr/rss/30000001/"),
+    ],
+    "entertainment": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 연예",     "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 연예검색", "https://news.google.com/rss/search?q=%EC%97%B0%EC%98%88+%EC%95%84%EC%9D%B4%EB%8F%8C+%EB%93%9C%EB%9D%BC%EB%A7%88&hl=ko&gl=KR&ceid=KR:ko"),
+    ],
+    "sports": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 스포츠",   "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 스포츠검색","https://news.google.com/rss/search?q=%EC%B6%95%EA%B5%AC+%EC%95%BC%EA%B5%AC+KBO+EPL&hl=ko&gl=KR&ceid=KR:ko"),
+    ],
+    "health": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 건강",     "https://news.google.com/rss/topics/CAAqIQgKIhtDQkFTRGdvSUwyMHZNR3QwTlRFU0FtdHZLQUFQAQ?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 건강검색", "https://news.google.com/rss/search?q=%EA%B1%B4%EA%B0%95+%EC%9D%98%ED%95%99+%EC%A7%88%EB%B3%91+%EC%B9%98%EB%A3%8C&hl=ko&gl=KR&ceid=KR:ko"),
+    ],
+    "religion": [
+        ("구글 주요",     "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 종교검색", "https://news.google.com/rss/search?q=%EC%A2%85%EA%B5%90+%EA%B5%90%ED%9A%8C+%EC%82%AC%EC%B0%B0+%EB%AA%A9%EC%82%AC&hl=ko&gl=KR&ceid=KR:ko"),
+        ("구글 기독교",   "https://news.google.com/rss/search?q=%EA%B8%B0%EB%8F%85%EA%B5%90+%EB%B6%88%EA%B5%90+%EC%B2%9C%EC%A3%BC%EA%B5%90+%EC%9D%B4%EC%8A%AC%EB%9E%8C&hl=ko&gl=KR&ceid=KR:ko"),
+    ],
+}
+
+def get_feeds(category="economy"):
+    return CATEGORY_FEEDS.get(category, CATEGORY_FEEDS["economy"])
+
+TRENDS_URL = "https://trends.google.co.kr/trending/rss?geo=KR"
+
+STOPWORDS = {
+    "것","수","등","이","그","저","및","또","더","위","중","대한","통해","위해",
+    "있는","하는","되는","없는","같은","오늘","내일","어제","올해","지난","최근",
+    "현재","다시","뉴스","속보","단독","종합","업데이트","포토","영상","기자",
+    "특파원","앵커","리포트","인터뷰","한국","국내","해외","세계","글로벌","전세계",
+    "정부","대통령","나라","우리","모두","사람","가능","예상","전망","분석",
+    "발표","확인","결정","시장","경제","만에","이후","가장","처음","결국",
+    "때문","바로","기업","회사","이번","이날","관련","일보","신문","경향",
+    "대비","사이","상승","하락","것으로","포인트",
+}
+
+ECON_RE = re.compile(
+    r"코스피|코스닥|나스닥|S&P|다우|니케이|항셍"
+    r"|환율|금리|기준금리"
+    r"|유가|금값|원유|WTI|브렌트|천연가스"
+    r"|부동산|아파트|전세|월세|분양|재건축|재개발"
+    r"|한은|연준|Fed|ECB|IMF|OECD|기재부|금감원"
+    r"|반도체|배터리|2차전지|방산|바이오"
+    r"|삼성|SK|현대|LG|네이버|카카오|테슬라|엔비디아|애플"
+    r"|미국|중국|일본|러시아|이란|우크라이나|북한|대만|인도"
+    r"|ETF|채권|펀드|연금|ISA|IRA"
+    r"|인플레|디플레|스태그플레이션|관세|무역전쟁|제재|수출|수입"
+    r"|호르무즈|지정학|봉쇄|파산|폭락|폭등|급등|급락|트럼프"
+)
+KOREAN_WORD_RE = re.compile(r"[가-힣]{2,}")
+SUFFIX_RE = re.compile(r"(에서|으로|에게|까지|부터|이다|하는|되는|했다|됐다|한다|된다)$")
+NUM_UNIT_RE = re.compile(r"\d+[%조억만원달러엔위안배]")
+
+
+# ──────────────────────────────────────────────
+#  채널 설정 관리
+# ──────────────────────────────────────────────
+
+def load_channels():
+    if os.path.exists(CHANNELS_FILE):
+        with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"my_channel": None, "competitors": [], "category": "economy"}
+
+
+def save_channels(data):
+    with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def channel_id_from_input(text):
+    """URL이나 핸들에서 채널 ID를 추출한다."""
+    text = text.strip()
+    # 이미 UCxxxx 형식
+    if text.startswith("UC") and len(text) == 24:
+        return text
+    # @핸들 형식 → RSS로 확인 불가, 핸들 그대로 저장
+    if text.startswith("@"):
+        return text
+    # URL에서 추출
+    if "youtube.com" in text:
+        if "/channel/" in text:
+            parts = text.split("/channel/")
+            return parts[1].split("/")[0].split("?")[0]
+        if "/@" in text:
+            parts = text.split("/@")
+            return "@" + parts[1].split("/")[0].split("?")[0]
+    return text
+
+
+def get_channel_rss_url(channel_id):
+    """채널 ID로 RSS URL을 만든다."""
+    if channel_id.startswith("@"):
+        # 핸들은 직접 RSS 불가 → 페이지에서 채널 ID 추출 시도
+        return None
+    return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+
+
+# ──────────────────────────────────────────────
+#  데이터 수집
+# ──────────────────────────────────────────────
+
+def fetch_url(url):
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0 NewsTracker/1.0"})
+    with urlopen(req, timeout=15) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def clean_html(text):
+    return re.sub(r"<[^>]+>", "", text).strip() if text else ""
+
+
+def parse_date(text):
+    if not text:
+        return datetime.now(KST)
+    try:
+        dt = parsedate_to_datetime(text)
+        return dt.astimezone(KST)
+    except Exception:
+        try:
+            # YouTube RSS는 ISO 형식
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(KST)
+        except Exception:
+            return datetime.now(KST)
+
+
+def extract_keywords(title):
+    keywords = set()
+    for m in ECON_RE.finditer(title):
+        keywords.add(m.group())
+    for m in NUM_UNIT_RE.finditer(title):
+        keywords.add(m.group())
+    for m in KOREAN_WORD_RE.finditer(title):
+        w = SUFFIX_RE.sub("", m.group())
+        if len(w) >= 2 and w not in STOPWORDS:
+            keywords.add(w)
+    return list(keywords)
+
+
+def fetch_feed(name, url):
+    articles = []
+    try:
+        xml = fetch_url(url)
+        root = ET.fromstring(xml)
+        for item in root.iter("item"):
+            title = clean_html(item.findtext("title", ""))
+            if not title:
+                continue
+            articles.append({
+                "title": title,
+                "link": item.findtext("link", ""),
+                "source": name,
+                "pubDate": parse_date(item.findtext("pubDate")).isoformat(),
+                "keywords": extract_keywords(title),
+            })
+    except Exception as e:
+        print(f"  [WARN] {name} 실패: {e}")
+    return articles
+
+
+def fetch_all(category="economy"):
+    all_articles = []
+    errors = []
+    feeds = get_feeds(category)
+    for name, url in feeds:
+        arts = fetch_feed(name, url)
+        if arts:
+            print(f"  [{name}] {len(arts)}건")
+        else:
+            errors.append(name)
+        all_articles.extend(arts)
+
+    seen = set()
+    unique = []
+    for a in all_articles:
+        key = a["title"][:30]
+        if key not in seen:
+            seen.add(key)
+            unique.append(a)
+
+    unique.sort(key=lambda a: a["pubDate"], reverse=True)
+    return unique[:500], errors
+
+
+def fetch_trends():
+    trends = []
+    try:
+        xml = fetch_url(TRENDS_URL)
+        root = ET.fromstring(xml)
+        for item in root.iter("item"):
+            keyword = item.findtext("title", "")
+            traffic = ""
+            for child in item:
+                if "approx_traffic" in child.tag:
+                    traffic = child.text or ""
+            link = item.findtext("link", "")
+            if keyword:
+                trends.append({"keyword": keyword, "traffic": traffic, "link": link})
+    except Exception as e:
+        print(f"  [WARN] 구글 트렌드 실패: {e}")
+    return trends
+
+
+# ──────────────────────────────────────────────
+#  [PRO] 경쟁 채널 모니터링
+# ──────────────────────────────────────────────
+
+def fetch_youtube_channel(channel_id, name=""):
+    """유튜브 채널의 최근 영상을 RSS로 가져온다."""
+    videos = []
+    rss_url = get_channel_rss_url(channel_id)
+    if not rss_url:
+        return videos
+    try:
+        xml = fetch_url(rss_url)
+        root = ET.fromstring(xml)
+        ns = {"atom": "http://www.w3.org/2005/Atom", "media": "http://search.yahoo.com/mrss/"}
+        channel_name = root.findtext("atom:title", name, ns) or name
+
+        for entry in root.findall("atom:entry", ns):
+            title = entry.findtext("atom:title", "", ns)
+            link_el = entry.find("atom:link", ns)
+            link = link_el.get("href", "") if link_el is not None else ""
+            published = entry.findtext("atom:published", "", ns)
+            video_id = entry.findtext("{http://www.youtube.com/xml/schemas/2015}videoId", "")
+
+            videos.append({
+                "title": title,
+                "link": link,
+                "videoId": video_id,
+                "channel": channel_name,
+                "channelId": channel_id,
+                "pubDate": parse_date(published).isoformat(),
+                "keywords": extract_keywords(title),
+            })
+    except Exception as e:
+        print(f"  [WARN] 채널 {name or channel_id} 실패: {e}")
+    return videos
+
+
+def fetch_all_competitors():
+    """등록된 경쟁 채널의 최근 영상을 모두 가져온다."""
+    channels = load_channels()
+    all_videos = []
+    for comp in channels.get("competitors", []):
+        vids = fetch_youtube_channel(comp["id"], comp.get("name", ""))
+        if vids and not comp.get("name"):
+            comp["name"] = vids[0].get("channel", comp["id"])
+            save_channels(channels)
+        all_videos.extend(vids)
+        if vids:
+            print(f"  [경쟁:{vids[0].get('channel', comp['id'])}] {len(vids)}편")
+
+    all_videos.sort(key=lambda v: v["pubDate"], reverse=True)
+    return all_videos
+
+
+def fetch_my_channel():
+    """내 채널의 최근 영상을 가져온다."""
+    channels = load_channels()
+    my = channels.get("my_channel")
+    if not my:
+        return []
+    vids = fetch_youtube_channel(my["id"], my.get("name", ""))
+    if vids and not my.get("name"):
+        my["name"] = vids[0].get("channel", my["id"])
+        save_channels(channels)
+    return vids
+
+
+# ──────────────────────────────────────────────
+#  [PRO] 블루오션 탐지 + 맞춤 추천
+# ──────────────────────────────────────────────
+
+def analyze_blue_ocean(topics, competitor_videos, my_videos):
+    """핫토픽 중 경쟁채널이 아직 안 다룬 주제를 찾는다."""
+    # 경쟁 채널이 최근 3일간 다룬 키워드
+    cutoff = datetime.now(KST) - timedelta(days=3)
+    comp_keywords = set()
+    for v in competitor_videos:
+        try:
+            pub = datetime.fromisoformat(v["pubDate"])
+            if pub > cutoff:
+                comp_keywords.update(v.get("keywords", []))
+        except Exception:
+            comp_keywords.update(v.get("keywords", []))
+
+    # 내가 다룬 키워드
+    my_keywords = set()
+    for v in my_videos:
+        my_keywords.update(v.get("keywords", []))
+
+    # 각 핫토픽에 블루오션 태그 + 추천 점수
+    for topic in topics:
+        kw = topic["keyword"]
+        covered_by_comp = kw in comp_keywords
+        covered_by_me = kw in my_keywords
+
+        topic["blue_ocean"] = not covered_by_comp
+        topic["already_covered"] = covered_by_me
+
+        # 추천 점수: 높을수록 좋음
+        rec_score = topic["score"] * 10  # 기본: 소스 수
+        if not covered_by_comp:
+            rec_score += 30  # 블루오션 보너스
+        if covered_by_me:
+            rec_score -= 20  # 이미 다룸 패널티
+        if topic["urgency"] == "NOW":
+            rec_score += 25
+        elif topic["urgency"] == "HOT":
+            rec_score += 15
+        elif topic["urgency"] == "WARM":
+            rec_score += 5
+
+        topic["rec_score"] = rec_score
+
+    return topics
+
+
+def get_recommendations(topics, limit=10):
+    """추천 토픽을 점수순으로 정렬해서 반환한다."""
+    scored = [t for t in topics if t.get("rec_score", 0) > 0]
+    scored.sort(key=lambda t: -t["rec_score"])
+    return scored[:limit]
+
+
+# ──────────────────────────────────────────────
+#  핫토픽 분석
+# ──────────────────────────────────────────────
+
+def analyze_topics(articles):
+    cutoff = datetime.now(KST) - timedelta(hours=24)
+    recent = []
+    for a in articles:
+        try:
+            pub = datetime.fromisoformat(a["pubDate"])
+            if pub > cutoff:
+                recent.append(a)
+        except Exception:
+            recent.append(a)
+
+    kw_map = {}
+    for a in recent:
+        for kw in a["keywords"]:
+            if len(kw) < 2:
+                continue
+            kw_map.setdefault(kw, []).append(a)
+
+    topics = []
+    for kw, arts in kw_map.items():
+        sources = list(set(a["source"] for a in arts))
+        if len(sources) >= 2:
+            dates = []
+            for a in arts:
+                try:
+                    dates.append(datetime.fromisoformat(a["pubDate"]))
+                except Exception:
+                    pass
+            earliest = min(dates) if dates else datetime.now(KST)
+            hours = (datetime.now(KST) - earliest).total_seconds() / 3600
+
+            if hours < 3:
+                urgency = "NOW"
+            elif hours < 6:
+                urgency = "HOT"
+            elif hours < 12:
+                urgency = "WARM"
+            else:
+                urgency = "COOL"
+
+            topics.append({
+                "keyword": kw,
+                "score": len(sources),
+                "sources": sources,
+                "urgency": urgency,
+                "age_hours": round(hours, 1),
+                "article_count": len(arts),
+                "articles": [{"title": a["title"], "link": a["link"],
+                              "source": a["source"], "pubDate": a["pubDate"]}
+                             for a in arts[:8]],
+                "blue_ocean": False,
+                "already_covered": False,
+                "rec_score": 0,
+            })
+
+    topics.sort(key=lambda t: (-t["score"], t["age_hours"]))
+    return topics
+
+
+# ──────────────────────────────────────────────
+#  글로벌 캐시
+# ──────────────────────────────────────────────
+
+_cache = {}  # 카테고리별: _cache["economy"] = {articles, topics, ...}
+_shared = {  # 카테고리 무관 공유 데이터
+    "trends": [],
+    "competitors": [],
+    "my_videos": [],
+    "last_updated": None,
+}
+_lock = threading.Lock()
+
+
+def refresh_single(cat):
+    """단일 카테고리 수집."""
+    articles, errors = fetch_all(cat)
+    topics = analyze_topics(articles)
+    with _lock:
+        _cache[cat] = {
+            "articles": articles[:100],
+            "topics": topics[:40],
+            "recommendations": [],
+            "errors": errors,
+        }
+    return articles, topics
+
+
+def refresh_cache():
+    """현재 카테고리 먼저, 나머지는 이어서."""
+    channels = load_channels()
+    primary = channels.get("category", "economy")
+    print(f"\n[{datetime.now(KST).strftime('%H:%M:%S')}] 수집 시작 (우선: {primary})")
+
+    # 1) 현재 카테고리 먼저
+    arts, topics = refresh_single(primary)
+    print(f"  [{primary}] {len(arts)}건, 핫토픽 {len(topics)}개 *** 준비완료")
+
+    # 2) 트렌드
+    trends = fetch_trends()
+    with _lock:
+        _shared["trends"] = trends[:20]
+        _shared["last_updated"] = datetime.now(KST).isoformat()
+
+    # 3) [PRO] 경쟁 채널 + 내 채널
+    comp_videos = []
+    my_videos = []
+    if channels.get("competitors"):
+        print("  경쟁 채널 수집 중...")
+        comp_videos = fetch_all_competitors()
+    if channels.get("my_channel"):
+        my_videos = fetch_my_channel()
+        if my_videos:
+            print(f"  [내채널:{my_videos[0].get('channel','')}] {len(my_videos)}편")
+
+    with _lock:
+        _shared["competitors"] = comp_videos[:50]
+        _shared["my_videos"] = my_videos[:15]
+
+    # 블루오션 적용 (현재 카테고리)
+    if comp_videos or my_videos:
+        with _lock:
+            t = _cache[primary]["topics"]
+        t = analyze_blue_ocean(t, comp_videos, my_videos)
+        recs = get_recommendations(t)
+        with _lock:
+            _cache[primary]["topics"] = t
+            _cache[primary]["recommendations"] = recs
+
+    # 4) 나머지 카테고리 백그라운드 수집
+    for cat in CATEGORY_FEEDS:
+        if cat == primary:
+            continue
+        try:
+            a2, t2 = refresh_single(cat)
+            if comp_videos or my_videos:
+                t2 = analyze_blue_ocean(t2, comp_videos, my_videos)
+                with _lock:
+                    _cache[cat]["topics"] = t2
+                    _cache[cat]["recommendations"] = get_recommendations(t2)
+            print(f"  [{cat}] {len(a2)}건")
+        except Exception as e:
+            print(f"  [{cat}] 실패: {e}")
+
+    print(f"[{datetime.now(KST).strftime('%H:%M:%S')}] 전체 완료! ({len(_cache)}개 카테고리)")
+
+
+def auto_refresh():
+    import time
+    while True:
+        time.sleep(30 * 60)
+        try:
+            refresh_cache()
+        except Exception as e:
+            print(f"[ERROR] 자동 갱신 실패: {e}")
+
+
+# ──────────────────────────────────────────────
+#  HTTP 서버
+# ──────────────────────────────────────────────
+
+class Handler(SimpleHTTPRequestHandler):
+
+    def _json_response(self, data, status=200):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length)) if length else {}
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        if parsed.path == "/api/data":
+            cat = params.get("category", ["economy"])[0]
+            with _lock:
+                cat_data = _cache.get(cat, _cache.get("economy", {}))
+                result = {
+                    "articles": cat_data.get("articles", []),
+                    "topics": cat_data.get("topics", []),
+                    "recommendations": cat_data.get("recommendations", []),
+                    "errors": cat_data.get("errors", []),
+                    "trends": _shared.get("trends", []),
+                    "competitors": _shared.get("competitors", []),
+                    "my_videos": _shared.get("my_videos", []),
+                    "last_updated": _shared.get("last_updated"),
+                    "category": cat,
+                }
+            self._json_response(result)
+
+        elif parsed.path == "/api/channels":
+            self._json_response(load_channels())
+
+        elif parsed.path == "/api/refresh":
+            threading.Thread(target=refresh_cache, daemon=True).start()
+            self._json_response({"status": "refreshing"})
+
+        elif parsed.path == "/" or parsed.path == "":
+            self.path = "/index.html"
+            super().do_GET()
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        if self.path == "/api/channels/my":
+            body = self._read_body()
+            channels = load_channels()
+            raw = body.get("channel", "").strip()
+            if raw:
+                cid = channel_id_from_input(raw)
+                channels["my_channel"] = {"id": cid, "name": body.get("name", "")}
+            else:
+                channels["my_channel"] = None
+            save_channels(channels)
+            self._json_response({"ok": True, "channels": channels})
+            threading.Thread(target=refresh_cache, daemon=True).start()
+
+        elif self.path == "/api/channels/competitor":
+            body = self._read_body()
+            channels = load_channels()
+            raw = body.get("channel", "").strip()
+            if raw:
+                cid = channel_id_from_input(raw)
+                # 중복 체크
+                existing = {c["id"] for c in channels["competitors"]}
+                if cid not in existing:
+                    channels["competitors"].append({
+                        "id": cid,
+                        "name": body.get("name", ""),
+                    })
+                    save_channels(channels)
+            self._json_response({"ok": True, "channels": channels})
+            threading.Thread(target=refresh_cache, daemon=True).start()
+
+        elif self.path == "/api/channels/competitor/delete":
+            body = self._read_body()
+            channels = load_channels()
+            cid = body.get("id", "")
+            channels["competitors"] = [c for c in channels["competitors"] if c["id"] != cid]
+            save_channels(channels)
+            self._json_response({"ok": True, "channels": channels})
+
+        elif self.path == "/api/category":
+            body = self._read_body()
+            channels = load_channels()
+            channels["category"] = body.get("category", "economy")
+            save_channels(channels)
+            self._json_response({"ok": True, "category": channels["category"]})
+            threading.Thread(target=refresh_cache, daemon=True).start()
+
+        elif self.path == "/api/refresh":
+            threading.Thread(target=refresh_cache, daemon=True).start()
+            self._json_response({"status": "refreshing"})
+
+        else:
+            self.send_error(404)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+
+# ──────────────────────────────────────────────
+#  메인
+# ──────────────────────────────────────────────
+
+if __name__ == "__main__":
+    os.chdir(BASE_DIR)
+
+    # 채널 설정 초기화
+    if not os.path.exists(CHANNELS_FILE):
+        save_channels({"my_channel": None, "competitors": []})
+
+    # 서버 먼저 시작 (데이터는 백그라운드에서 수집)
+    # 클라우드 배포 시 PORT 환경변수 사용, 로컬은 자동 탐색
+    env_port = os.environ.get("PORT")
+    if env_port:
+        port = int(env_port)
+        server = HTTPServer(("0.0.0.0", port), Handler)
+    else:
+        port = 8585
+        for p in [8585, 8686, 8787, 9090, 9191]:
+            try:
+                server = HTTPServer(("127.0.0.1", p), Handler)
+                port = p
+                break
+            except OSError:
+                continue
+        else:
+            print("[ERROR] 사용 가능한 포트를 찾을 수 없습니다.")
+            input("Enter를 눌러 종료...")
+        exit(1)
+
+    url = f"http://localhost:{port}"
+    print(f"\n{'='*45}")
+    print(f"  경제 뉴스 트래커 실행 중")
+    print(f"  {url}")
+    print(f"  이 창을 닫으면 종료됩니다.")
+    print(f"{'='*45}\n")
+
+    # 로컬에서만 브라우저 자동 열기
+    if not env_port:
+        import webbrowser
+        webbrowser.open(url)
+
+    # 데이터 수집 시작 (백그라운드)
+    threading.Thread(target=refresh_cache, daemon=True).start()
+
+    # 자동 갱신 스레드
+    threading.Thread(target=auto_refresh, daemon=True).start()
+
+    server.serve_forever()

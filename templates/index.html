@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>경제 뉴스 트래커</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { background: #0f172a; color: #e2e8f0; font-family: 'Pretendard', -apple-system, sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(71, 85, 105, 0.4); }
+        .urgency-NOW { background: #ef4444; animation: pulse 1.5s infinite; }
+        .urgency-HOT { background: #f97316; }
+        .urgency-WARM { background: #eab308; color: #0f172a; }
+        .urgency-COOL { background: #64748b; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .score-bar { transition: width 0.5s ease; }
+        .card:hover { transform: translateY(-2px); transition: transform 0.2s; }
+        .trend-badge { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- 헤더 -->
+    <header class="glass sticky top-0 z-50 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-white">
+                    <span class="text-red-400">&#9679;</span> 경제 뉴스 트래커
+                </h1>
+                <p class="text-sm text-slate-400">
+                    {% if last_updated %}
+                        마지막 갱신: {{ last_updated.strftime('%Y-%m-%d %H:%M:%S') }}
+                    {% else %}
+                        데이터 로딩 중...
+                    {% endif %}
+                </p>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-slate-400">
+                    {{ articles|length }}건 수집됨
+                </span>
+                <button onclick="manualRefresh()" id="refreshBtn"
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium transition">
+                    &#x21BB; 새로고침
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+        <!-- 긴급 알림 배너 -->
+        {% set now_topics = hot_topics | selectattr('urgency', 'equalto', 'NOW') | list %}
+        {% if now_topics %}
+        <div class="mb-8 p-4 bg-red-900 bg-opacity-50 border border-red-500 rounded-xl">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-red-400 text-xl">&#9888;</span>
+                <span class="font-bold text-red-300">지금 터지는 주제 — 6시간 이내 업로드 권장</span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                {% for t in now_topics %}
+                <span class="px-3 py-1 bg-red-600 rounded-full text-sm font-bold">
+                    {{ t.keyword }} ({{ t.score }}개 소스)
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- 좌측: 핫 토픽 -->
+            <div class="lg:col-span-2">
+                <h2 class="text-xl font-bold mb-4 text-white">
+                    &#128293; 핫 토픽 <span class="text-sm text-slate-400 font-normal">(2개 이상 소스에서 언급)</span>
+                </h2>
+
+                {% if hot_topics %}
+                <div class="space-y-3">
+                    {% for topic in hot_topics %}
+                    <div class="glass rounded-xl p-4 card cursor-pointer" onclick="toggleArticles('topic-{{ loop.index }}')">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-3">
+                                <!-- 긴급도 배지 -->
+                                <span class="urgency-{{ topic.urgency }} px-2 py-1 rounded text-xs font-bold">
+                                    {{ topic.urgency }}
+                                </span>
+                                <!-- 키워드 -->
+                                <span class="text-lg font-bold text-white">{{ topic.keyword }}</span>
+                            </div>
+                            <div class="flex items-center gap-4 text-sm">
+                                <!-- 소스 수 -->
+                                <span class="text-indigo-400">
+                                    {{ topic.score }}개 소스
+                                </span>
+                                <!-- 시간 -->
+                                <span class="text-slate-400">
+                                    {{ "%.0f"|format(topic.age_hours) }}시간 전
+                                </span>
+                                <!-- 유튜브 경쟁도 -->
+                                {% if topic.youtube_competition >= 0 %}
+                                <span class="{% if topic.youtube_competition < 5 %}text-green-400{% elif topic.youtube_competition < 15 %}text-yellow-400{% else %}text-red-400{% endif %}">
+                                    &#9654; {{ topic.youtube_competition }}개 영상
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- 점수 바 -->
+                        <div class="w-full bg-slate-700 rounded-full h-1.5 mb-2">
+                            <div class="score-bar bg-indigo-500 h-1.5 rounded-full"
+                                 style="width: {{ [topic.score * 20, 100] | min }}%"></div>
+                        </div>
+
+                        <!-- 소스 태그 -->
+                        <div class="flex flex-wrap gap-1 mb-2">
+                            {% for source in topic.articles | map(attribute='source') | unique %}
+                            <span class="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-300">{{ source }}</span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- 관련 기사 (토글) -->
+                        <div id="topic-{{ loop.index }}" class="hidden mt-3 space-y-2 border-t border-slate-700 pt-3">
+                            {% for article in topic.articles[:5] %}
+                            <a href="{{ article.link }}" target="_blank"
+                               class="block text-sm text-slate-300 hover:text-indigo-400 transition">
+                                <span class="text-slate-500">[{{ article.source }}]</span>
+                                {{ article.title }}
+                                <span class="text-slate-500 text-xs">
+                                    ({{ "%.0f"|format(article.age_hours) }}h ago)
+                                </span>
+                            </a>
+                            {% endfor %}
+                            {% if topic.articles|length > 5 %}
+                            <p class="text-xs text-slate-500">+{{ topic.articles|length - 5 }}건 더</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="glass rounded-xl p-8 text-center text-slate-400">
+                    데이터를 수집 중입니다... 잠시만 기다려주세요.
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- 우측: 구글 트렌드 + 최신 뉴스 -->
+            <div class="space-y-8">
+                <!-- 구글 급상승 검색어 -->
+                <div>
+                    <h2 class="text-xl font-bold mb-4 text-white">
+                        &#128200; 구글 급상승
+                    </h2>
+                    <div class="glass rounded-xl p-4">
+                        {% if google_trends %}
+                        <div class="space-y-2">
+                            {% for trend in google_trends %}
+                            <div class="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
+                                <div>
+                                    <a href="{{ trend.link }}" target="_blank"
+                                       class="text-sm font-medium text-white hover:text-indigo-400 transition">
+                                        {{ trend.keyword }}
+                                    </a>
+                                </div>
+                                {% if trend.traffic %}
+                                <span class="trend-badge px-2 py-0.5 rounded text-xs font-bold">
+                                    {{ trend.traffic }}
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-sm text-slate-400">트렌드 로딩 중...</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 최신 경제 뉴스 -->
+                <div>
+                    <h2 class="text-xl font-bold mb-4 text-white">
+                        &#128240; 최신 뉴스
+                    </h2>
+                    <div class="glass rounded-xl p-4 max-h-96 overflow-y-auto">
+                        {% if articles %}
+                        <div class="space-y-3">
+                            {% for article in articles %}
+                            <div class="border-b border-slate-700 pb-2 last:border-0">
+                                <a href="{{ article.link }}" target="_blank"
+                                   class="text-sm text-slate-200 hover:text-indigo-400 transition leading-snug block">
+                                    {{ article.title }}
+                                </a>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="text-xs text-slate-500">{{ article.source }}</span>
+                                    <span class="text-xs text-slate-600">{{ article.published.strftime('%m/%d %H:%M') }}</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-sm text-slate-400">뉴스 로딩 중...</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 영상 기획 팁 -->
+                <div class="glass rounded-xl p-4">
+                    <h3 class="font-bold text-indigo-400 mb-2">&#128161; 영상 기획 팁</h3>
+                    <ul class="text-sm text-slate-300 space-y-1">
+                        <li>&#x2022; <b>NOW</b> = 3시간 이내. 지금 바로 대본 시작</li>
+                        <li>&#x2022; <b>HOT</b> = 6시간 이내. 오늘 안에 업로드</li>
+                        <li>&#x2022; <b>유튜브 5개 미만</b> = 블루오션. 선점 기회</li>
+                        <li>&#x2022; <b>2+ 소스</b> = 검증된 관심사. 안전한 주제</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function toggleArticles(id) {
+            const el = document.getElementById(id);
+            el.classList.toggle('hidden');
+        }
+
+        function manualRefresh() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.textContent = '갱신 중...';
+            btn.classList.add('opacity-50');
+
+            fetch('/api/refresh', { method: 'POST' })
+                .then(() => {
+                    setTimeout(() => { window.location.reload(); }, 5000);
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    btn.textContent = '↻ 새로고침';
+                    btn.classList.remove('opacity-50');
+                });
+        }
+
+        // 5분마다 자동 새로고침
+        setInterval(() => { window.location.reload(); }, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
