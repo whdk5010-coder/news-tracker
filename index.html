@@ -652,9 +652,9 @@ function renderTrends(){
     if(trends.length){
         html+=`<div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">&#128240; 이 카테고리 뉴스에서 가장 많이 언급된 키워드</div>`;
         html+=`<div class="card" style="padding:0;overflow:hidden">${trends.map((t,i)=>`
-            <div class="trend-item">
+            <div class="trend-item" style="cursor:pointer" onclick="window.open('https://www.google.com/search?q='+encodeURIComponent('${t.keyword.replace(/'/g,"\\'")}'),'_blank')">
                 <span class="trend-rank ${i<3?'top3':''}">${i+1}</span>
-                <span style="flex:1;font-size:.85rem;font-weight:600">${t.keyword}</span>
+                <span style="flex:1;font-size:.85rem;font-weight:600;color:#fff">${t.keyword}</span>
                 <span class="trend-traffic">${t.traffic}</span>
             </div>
         `).join('')}</div>`;
