@@ -522,16 +522,35 @@ _shared = {  # 카테고리 무관 공유 데이터
 _lock = threading.Lock()
 
 
+def extract_news_trending(articles, limit=15):
+    """뉴스 기사에서 가장 많이 언급된 키워드를 추출한다."""
+    kw_count = {}
+    for a in articles:
+        seen = set()
+        for kw in a.get("keywords", []):
+            if len(kw) < 2 or kw in seen:
+                continue
+            seen.add(kw)
+            kw_count[kw] = kw_count.get(kw, 0) + 1
+
+    # 2번 이상 등장한 키워드만
+    ranked = [(kw, cnt) for kw, cnt in kw_count.items() if cnt >= 2]
+    ranked.sort(key=lambda x: -x[1])
+    return [{"keyword": kw, "count": cnt, "traffic": f"{cnt}건"} for kw, cnt in ranked[:limit]]
+
+
 def refresh_single(cat):
     """단일 카테고리 수집."""
     articles, errors = fetch_all(cat)
     articles = filter_articles_by_category(articles, cat)
+    news_trending = extract_news_trending(articles)
     topics = analyze_topics(articles)
     with _lock:
         _cache[cat] = {
             "articles": articles[:100],
             "topics": topics[:40],
             "recommendations": [],
+            "news_trending": news_trending,
             "errors": errors,
         }
     return articles, topics
@@ -637,7 +656,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "topics": cat_data.get("topics", []),
                     "recommendations": cat_data.get("recommendations", []),
                     "errors": cat_data.get("errors", []),
-                    "trends": filter_trends_by_category(_shared.get("trends", []), cat),
+                    "trends": cat_data.get("news_trending", []),
+                    "google_trends": _shared.get("trends", []),
                     "competitors": _shared.get("competitors", []),
                     "my_videos": _shared.get("my_videos", []),
                     "last_updated": _shared.get("last_updated"),

@@ -641,15 +641,38 @@ function renderNews(){
 // ══════════════════════════════════════
 function renderTrends(){
     const trends=data.trends||[];
+    const gTrends=data.google_trends||[];
     const el=document.getElementById('googleTrends');
-    if(!trends.length){el.innerHTML='<div class="loading">트렌드 없음</div>';return;}
-    el.innerHTML=`<div class="card" style="padding:0;overflow:hidden">${trends.map((t,i)=>`
-        <div class="trend-item">
-            <span class="trend-rank ${i<3?'top3':''}">${i+1}</span>
-            <span style="flex:1;font-size:.85rem;font-weight:600"><a href="${t.link}" target="_blank" rel="noopener" style="color:#fff;text-decoration:none">${t.keyword}</a></span>
-            ${t.traffic?`<span class="trend-traffic">${t.traffic}</span>`:''}
-        </div>
-    `).join('')}</div>`;
+
+    let html='';
+
+    // 뉴스 기반 급상승 (메인)
+    if(trends.length){
+        html+=`<div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">&#128240; 이 카테고리 뉴스에서 가장 많이 언급된 키워드</div>`;
+        html+=`<div class="card" style="padding:0;overflow:hidden">${trends.map((t,i)=>`
+            <div class="trend-item">
+                <span class="trend-rank ${i<3?'top3':''}">${i+1}</span>
+                <span style="flex:1;font-size:.85rem;font-weight:600">${t.keyword}</span>
+                <span class="trend-traffic">${t.traffic}</span>
+            </div>
+        `).join('')}</div>`;
+    } else {
+        html+='<div class="loading">이 카테고리 급상승 키워드가 없습니다.</div>';
+    }
+
+    // 구글 트렌드 (보조)
+    if(gTrends.length){
+        html+=`<div style="font-size:.8rem;color:var(--muted);margin:16px 0 8px">&#128200; 구글 급상승 검색어 (전체)</div>`;
+        html+=`<div class="card" style="padding:0;overflow:hidden">${gTrends.slice(0,10).map((t,i)=>`
+            <div class="trend-item">
+                <span class="trend-rank" style="font-size:.65rem">${i+1}</span>
+                <span style="flex:1;font-size:.8rem;font-weight:500"><a href="${t.link}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none">${t.keyword}</a></span>
+                ${t.traffic?`<span style="font-size:.65rem;color:var(--dim)">${t.traffic}</span>`:''}
+            </div>
+        `).join('')}</div>`;
+    }
+
+    el.innerHTML=html||'<div class="loading">트렌드 없음</div>';
     document.getElementById('trendCount').textContent=trends.length;
 }
 
