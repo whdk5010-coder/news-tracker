@@ -698,8 +698,8 @@ def auto_refresh():
 TELEGRAM_CONFIG = {
     "token": "8690612482:AAGedhIN0Pe2AdVa9f8OJcckhPBB4rUBSTI",
     "chat_id": "8682100018",
-    "category": "world",  # 국제정세
-    "morning_hour": 8,    # 매일 아침 8시
+    "categories": ["economy", "world"],  # 경제 + 국제정세
+    "morning_hour": 8,
 }
 
 
@@ -721,75 +721,182 @@ def send_telegram(text):
         return False
 
 
+def cluster_topics_into_issues(topics):
+    """키워드를 이슈 단위로 묶는다. 같은 기사를 공유하면 같은 이슈."""
+    if not topics:
+        return []
+
+    # 기사 URL → 토픽 매핑
+    url_to_topics = {}
+    for t in topics:
+        for a in t.get("articles", []):
+            url = a.get("link", "")
+            if url:
+                url_to_topics.setdefault(url, set()).add(t["keyword"])
+
+    # 키워드 간 연결 그래프 (같은 기사 공유 = 연결)
+    connections = {}
+    for url, kws in url_to_topics.items():
+        kws = list(kws)
+        for i in range(len(kws)):
+            for j in range(i+1, len(kws)):
+                connections.setdefault(kws[i], set()).add(kws[j])
+                connections.setdefault(kws[j], set()).add(kws[i])
+
+    # 연결 강도 계산 (공유 기사 수)
+    edge_strength = {}
+    for url, kws in url_to_topics.items():
+        kws = list(kws)
+        for i in range(len(kws)):
+            for j in range(i+1, len(kws)):
+                pair = tuple(sorted([kws[i], kws[j]]))
+                edge_strength[pair] = edge_strength.get(pair, 0) + 1
+
+    # 약한 연결 제거 (공유 기사 1개뿐이면 무시 — 우연한 동시 출현 방지)
+    strong_connections = {}
+    for (a, b), strength in edge_strength.items():
+        if strength >= 2:
+            strong_connections.setdefault(a, set()).add(b)
+            strong_connections.setdefault(b, set()).add(a)
+
+    # BFS로 클러스터 추출 (강한 연결만)
+    visited = set()
+    clusters = []
+    topic_map = {t["keyword"]: t for t in topics}
+
+    for t in sorted(topics, key=lambda x: -(x.get("rec_score", 0))):
+        kw = t["keyword"]
+        if kw in visited:
+            continue
+        # BFS (최대 6개까지만 묶기)
+        cluster_kws = []
+        queue = [kw]
+        while queue and len(cluster_kws) < 6:
+            cur = queue.pop(0)
+            if cur in visited:
+                continue
+            visited.add(cur)
+            cluster_kws.append(cur)
+            for neighbor in strong_connections.get(cur, []):
+                if neighbor not in visited:
+                    queue.append(neighbor)
+
+        # 클러스터 정보 합산
+        cluster_topics = [topic_map[k] for k in cluster_kws if k in topic_map]
+        if not cluster_topics:
+            continue
+
+        # 대표 키워드 = 소스(점수) 높은 순, 2글자 넘는 것 우선
+        candidates = sorted(cluster_kws, key=lambda k: (-(topic_map.get(k, {}).get("score", 0)), -(len(k))))
+        label = candidates[0] if candidates else kw
+        # 보조 키워드
+        sub_kws = [k for k in cluster_kws if k != label][:4]
+
+        # 기사 합치기 (중복 제거)
+        all_articles = {}
+        for ct in cluster_topics:
+            for a in ct.get("articles", []):
+                url = a.get("link", "")
+                if url and url not in all_articles:
+                    all_articles[url] = a
+
+        # 최고 긴급도
+        urgency_order = {"NOW": 0, "HOT": 1, "WARM": 2, "COOL": 3}
+        best_urgency = min(cluster_topics, key=lambda x: urgency_order.get(x.get("urgency", "COOL"), 3))["urgency"]
+
+        # 합산 점수
+        total_score = sum(ct.get("rec_score", 0) for ct in cluster_topics)
+        total_sources = len(set(s for ct in cluster_topics for s in ct.get("sources", [])))
+        has_yt = any(ct.get("yt_search") for ct in cluster_topics)
+        yt_count = max((ct.get("yt_suggestions", 0) for ct in cluster_topics), default=0)
+        is_blue = any(ct.get("blue_ocean") for ct in cluster_topics)
+
+        clusters.append({
+            "label": label,
+            "sub_keywords": sub_kws,
+            "urgency": best_urgency,
+            "score": total_score,
+            "sources": total_sources,
+            "has_yt": has_yt,
+            "yt_count": yt_count,
+            "is_blue": is_blue,
+            "articles": list(all_articles.values())[:5],
+            "keyword_count": len(cluster_kws),
+        })
+
+    clusters.sort(key=lambda c: -c["score"])
+    return clusters
+
+
 def build_morning_message():
     """매일 아침 영상 추천 메시지를 생성한다."""
-    cat = TELEGRAM_CONFIG["category"]
-    with _lock:
-        cat_data = _cache.get(cat, {})
-    topics = cat_data.get("topics", [])
-    if not topics:
+    cats = TELEGRAM_CONFIG.get("categories", ["economy"])
+    all_topics = []
+    for cat in cats:
+        with _lock:
+            cat_data = _cache.get(cat, {})
+        all_topics.extend(cat_data.get("topics", []))
+    if not all_topics:
         return None
 
-    # 추천순 정렬
-    ranked = sorted(topics, key=lambda t: -(t.get("rec_score", 0)))[:10]
+    # 이슈 단위로 묶기 (경제+국제 합쳐서)
+    issues = cluster_topics_into_issues(all_topics)[:10]
 
     urgency_emoji = {"NOW": "🔴", "HOT": "🟠", "WARM": "🟡", "COOL": "⚪"}
     now = datetime.now(KST)
     date_str = now.strftime("%m/%d") + f"({'월화수목금토일'[now.weekday()]})"
 
-    lines = [f"🎬 <b>{date_str} 영상 추천 TOP {len(ranked)}</b>", "━━━━━━━━━━━━━━━", ""]
+    lines = [f"🎬 <b>{date_str} 오늘의 영상 추천</b>", "━━━━━━━━━━━━━━━", ""]
 
-    for i, t in enumerate(ranked):
-        emoji = urgency_emoji.get(t.get("urgency", ""), "⚪")
-        tags = []
-        tags.append(f"{emoji} {t.get('urgency', '')}")
-        if t.get("blue_ocean"):
+    for i, issue in enumerate(issues):
+        emoji = urgency_emoji.get(issue["urgency"], "⚪")
+
+        # 태그 줄
+        tags = [f"{emoji} {issue['urgency']}"]
+        if issue["is_blue"]:
             tags.append("🔵 BLUE")
-        if t.get("yt_search"):
-            tags.append(f"🔍 YT {t.get('yt_suggestions', '')}건")
-        tags.append(f"📰 {t.get('score', 0)}개 소스")
+        if issue["has_yt"]:
+            tags.append(f"🔍 YT {issue['yt_count']}건")
+        tags.append(f"📰 {issue['sources']}개 소스")
 
-        # 한줄 이유 + 앵글 제안
-        if t.get("urgency") == "NOW" and t.get("blue_ocean"):
-            reason = "경쟁자 0, 지금 만들면 선점"
-            angle = f'"{t["keyword"]}" 지금 안 보면 늦는 이유'
-        elif t.get("urgency") == "NOW":
-            reason = "지금 터지는 중, 빠르게 업로드"
-            angle = f'"{t["keyword"]}" 터졌다... 내 돈은 괜찮을까?'
-        elif t.get("blue_ocean"):
-            reason = "경쟁채널 미진출, 선점 기회"
-            angle = f'아무도 안 다룬 {t["keyword"]}의 진짜 이유'
-        elif t.get("yt_search") and t.get("yt_suggestions", 0) >= 5:
-            reason = "YT검색 활발, 수요 검증됨"
-            angle = f'"{t["keyword"]}" 검색하면 안 나오는 핵심 정리'
-        elif t.get("score", 0) >= 4:
-            reason = "다수 매체 보도, 관심 높음"
-            angle = f'{t["keyword"]} 총정리 (뉴스에서 안 알려주는 것)'
+        # 앵글 제안 (이슈 맥락 기반)
+        label = issue["label"]
+        arts = issue["articles"]
+        # 첫 기사 제목에서 앵글 힌트
+        hint = arts[0]["title"][:30] if arts else label
+
+        if issue["urgency"] == "NOW" and issue["is_blue"]:
+            angle = f'"{label}" 속보 — 지금 선점하면 1등'
+        elif issue["urgency"] == "NOW":
+            angle = f'"{label}" 터졌다, 내 돈은 괜찮을까?'
+        elif issue["is_blue"]:
+            angle = f'아무도 안 다룬 "{label}"의 진짜 영향'
+        elif issue["has_yt"] and issue["yt_count"] >= 5:
+            angle = f'"{label}" 지금 다들 검색하는데 영상이 없다'
         else:
-            reason = "주목할 만한 주제"
-            angle = f'{t["keyword"]}이(가) 중요한 3가지 이유'
+            angle = f'"{label}" 핵심 정리 — 뉴스가 안 알려주는 것'
 
-        # 관련 뉴스 1개
-        top_article = ""
-        arts = t.get("articles", [])
-        if arts:
-            top_article = f"\n   📎 {arts[0].get('title', '')[:40]}..."
-
-        lines.append(f"{i+1}️⃣ <b>{t['keyword']}</b>")
+        # 제목
+        sub = f" ({', '.join(issue['sub_keywords'][:3])})" if issue["sub_keywords"] else ""
+        lines.append(f"{i+1}️⃣ <b>{label}</b>{sub}")
         lines.append(f"   {' · '.join(tags)}")
-        lines.append(f"   💡 {reason}")
-        lines.append(f"   🎯 앵글: {angle}")
-        if top_article:
-            lines.append(top_article)
+        lines.append(f"   🎯 {angle}")
+
+        # 관련 기사 (레퍼런스)
+        for a in arts[:3]:
+            title = a.get("title", "")[:45]
+            source = a.get("source", "")
+            lines.append(f"   📎 {title}... [{source}]")
+
         lines.append("")
 
     # 통계
-    total = len(topics)
-    blue = sum(1 for t in topics if t.get("blue_ocean"))
-    yt_active = sum(1 for t in topics if t.get("yt_search"))
+    total_issues = len(issues)
+    blue = sum(1 for c in issues if c["is_blue"])
+    yt_active = sum(1 for c in issues if c["has_yt"])
     lines.append("━━━━━━━━━━━━━━━")
-    lines.append(f"📊 전체 {total}개 | 🔵 블루오션 {blue}개 | 🔍 YT활발 {yt_active}개")
-    lines.append("👉 https://news-tracker-cx11.onrender.com")
+    lines.append(f"📊 {total_issues}개 이슈 | 🔵 블루오션 {blue} | 🔍 YT활발 {yt_active}")
+    lines.append(f"👉 https://news-tracker-cx11.onrender.com")
 
     return "\n".join(lines)
 
