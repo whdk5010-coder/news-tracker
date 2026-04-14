@@ -698,8 +698,8 @@ def auto_refresh():
 TELEGRAM_CONFIG = {
     "token": "8690612482:AAGedhIN0Pe2AdVa9f8OJcckhPBB4rUBSTI",
     "chat_id": "8682100018",
-    "categories": ["economy", "world"],  # 경제 + 국제정세
-    "morning_hour": 8,
+    "categories": ["economy", "world"],
+    "send_hours": [8, 13, 19],  # 아침 8시, 점심 1시, 저녁 7시
 }
 
 
@@ -828,8 +828,8 @@ def cluster_topics_into_issues(topics):
     return clusters
 
 
-def build_morning_message():
-    """매일 아침 영상 추천 메시지를 생성한다."""
+def build_morning_message(title_prefix="🎬"):
+    """하루 알림 메시지를 생성한다."""
     cats = TELEGRAM_CONFIG.get("categories", ["economy"])
     all_topics = []
     for cat in cats:
@@ -846,7 +846,7 @@ def build_morning_message():
     now = datetime.now(KST)
     date_str = now.strftime("%m/%d") + f"({'월화수목금토일'[now.weekday()]})"
 
-    lines = [f"🎬 <b>{date_str} 오늘의 영상 추천</b>", "━━━━━━━━━━━━━━━", ""]
+    lines = [f"{title_prefix} <b>{date_str} 영상 추천</b>", "━━━━━━━━━━━━━━━", ""]
 
     for i, issue in enumerate(issues):
         emoji = urgency_emoji.get(issue["urgency"], "⚪")
@@ -907,24 +907,36 @@ def build_morning_message():
 
 
 def telegram_scheduler():
-    """매일 아침 알림을 보내는 스케줄러."""
+    """하루 3번 (아침/점심/저녁) 알림 스케줄러."""
     import time
-    last_sent_date = None
+    sent_slots = set()  # "YYYY-MM-DD:HH" 형태
     while True:
         now = datetime.now(KST)
-        target_hour = TELEGRAM_CONFIG["morning_hour"]
-        if now.hour == target_hour and now.date() != last_sent_date:
-            # 먼저 데이터 갱신
+        target_hours = TELEGRAM_CONFIG.get("send_hours", [8])
+        slot_key = f"{now.date()}:{now.hour}"
+
+        if now.hour in target_hours and slot_key not in sent_slots:
+            # 시간대별 헤더
+            if now.hour < 12:
+                title_prefix = "🌅 아침"
+            elif now.hour < 18:
+                title_prefix = "☀️ 점심"
+            else:
+                title_prefix = "🌙 저녁"
+
             try:
                 refresh_cache()
             except Exception:
                 pass
-            msg = build_morning_message()
+
+            msg = build_morning_message(title_prefix=title_prefix)
             if msg:
                 if send_telegram(msg):
-                    print(f"[{now.strftime('%H:%M')}] 텔레그램 아침 알림 전송 완료!")
-                    last_sent_date = now.date()
-        time.sleep(300)  # 5분마다 체크
+                    print(f"[{now.strftime('%H:%M')}] 텔레그램 {title_prefix} 알림 전송 완료!")
+                    sent_slots.add(slot_key)
+                    # 오래된 슬롯 제거 (어제 거 정리)
+                    sent_slots = {s for s in sent_slots if s.startswith(str(now.date()))}
+        time.sleep(300)
 
 
 # ──────────────────────────────────────────────
